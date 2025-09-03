@@ -201,7 +201,7 @@ class RLDeploy:
             self.move = 0
             self.default = 0
             self.ready = 0
-        elif (self.remote_controller.button[KeyMap.L2] == 1 and self.remote_controller.button[KeyMap.R2] == 1):
+        elif (self.remote_controller.button[KeyMap.L1] == 1 and self.remote_controller.button[KeyMap.B] == 1):
             self.stop = 0
             self.move = 1
             self.default = 0
