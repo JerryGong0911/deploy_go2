@@ -30,6 +30,7 @@ class RLDeploy:
         # Initializing process variables
         self.qj = np.zeros(config.num_actions, dtype=np.float32)
         self.dqj = np.zeros(config.num_actions, dtype=np.float32)
+        self.init_dof_pos = np.zeros(config.num_actions, dtype=np.float32)
         self.action = np.zeros(config.num_actions, dtype=np.float32)
         self.obs_history = np.zeros(config.num_obs * 5, dtype=np.float32)
         self.target_dof_pos = config.default_angles.copy()
@@ -48,6 +49,7 @@ class RLDeploy:
         self.move = 0
         self.stop = 1
         self.ready = 0
+        self.task_current_step = 0
 
         self.InitLowCmd()
         self.InitRecurrentThread()
@@ -83,14 +85,55 @@ class RLDeploy:
             self.low_cmd.motor_cmd[i].kd = 0
             self.low_cmd.motor_cmd[i].tau = 0
 
-    def CreateDampingCmd(self, cmd: LowCmd_):
-        size = len(cmd.motor_cmd)
+    def CreateDampingCmd(self):
+        size = len(self.low_cmd.motor_cmd)
         for i in range(size):
-            cmd.motor_cmd[i].q = 0
-            cmd.motor_cmd[i].qd = 0
-            cmd.motor_cmd[i].kp = 0
-            cmd.motor_cmd[i].kd = 8
-            cmd.motor_cmd[i].tau = 0
+            self.low_cmd.motor_cmd[i].q = 0
+            self.low_cmd.motor_cmd[i].kp = 0
+            self.low_cmd.motor_cmd[i].dq = 0
+            self.low_cmd.motor_cmd[i].kd = 1.
+            self.low_cmd.motor_cmd[i].tau = 0
+
+    def CreateZeroCmd(self):
+        size = len(self.low_cmd.motor_cmd)
+        for i in range(size):
+            self.low_cmd.motor_cmd[i].q = 0
+            self.low_cmd.motor_cmd[i].dq = 0
+            self.low_cmd.motor_cmd[i].kp = 0
+            self.low_cmd.motor_cmd[i].kd = 0
+            self.low_cmd.motor_cmd[i].tau = 0
+
+    def MoveToDefault(self):
+        if self.task_current_step == 0:
+            total_time = 2.0
+            self.task_total_step = int(total_time / 0.02)
+
+        for i in range(len(self.config.leg_joint2motor_idx)):
+            motor_idx = self.config.leg_joint2motor_idx[i]
+            self.init_dof_pos[i] = self.low_state.motor_state[motor_idx].q
+
+        if self.task_current_step < self.task_total_step:
+            alpha = self.task_current_step / self.task_total_step
+            for i in range(len(self.config.leg_joint2motor_idx)):
+                motor_idx = self.config.leg_joint2motor_idx[i]
+                self.low_cmd.motor_cmd[motor_idx].q = (1 - alpha) * self.init_dof_pos[i] + alpha * self.config.default_angles[i]
+                self.low_cmd.motor_cmd[motor_idx].kp = 40
+                self.low_cmd.motor_cmd[motor_idx].dq = 0.0
+                self.low_cmd.motor_cmd[motor_idx].kd = 1
+                self.low_cmd.motor_cmd[motor_idx].tau = 0.0
+            self.task_current_step += 1
+        else:
+            self.ready = 1
+            self.task_current_step = 0
+
+    def DefaultPosState(self):
+        for i in range(len(self.config.leg_joint2motor_idx)):
+            motor_idx = self.config.leg_joint2motor_idx[i]
+            self.low_cmd.motor_cmd[motor_idx].q = self.config.default_angles[i]
+            self.low_cmd.motor_cmd[motor_idx].kp = 40
+            self.low_cmd.motor_cmd[motor_idx].dq = 0.0
+            self.low_cmd.motor_cmd[motor_idx].kd = 0.6
+            self.low_cmd.motor_cmd[motor_idx].tau = 0.0
 
     def Forward(self):
         # Get the current joint position and velocity
@@ -140,16 +183,40 @@ class RLDeploy:
             self.low_cmd.motor_cmd[motor_idx].tau = 0.0
 
     def Ctrl(self):
-        pass
-        # self.Forward()
+        if (self.stop == 1):
+            self.CreateDampingCmd()
+        elif (self.move == 1 and self.ready == 1):
+            self.Forward()
+        elif (self.default == 1):
+            if (self.ready == 1):
+                self.DefaultPosState()
+            else:
+                self.MoveToDefault()
 
     def FSM(self):
-        pass
+        print(self.remote_controller.button)
+        self.last_stop = self.stop
+        if (self.remote_controller.button[KeyMap.R1] == 1):
+            self.stop = 1
+            self.move = 0
+            self.default = 0
+            self.ready = 0
+        elif (self.remote_controller.button[KeyMap.L2] == 1 and self.remote_controller.button[KeyMap.R2] == 1):
+            self.stop = 0
+            self.move = 1
+            self.default = 0
+        elif (self.remote_controller.button[KeyMap.L1] == 1 and self.remote_controller.button[KeyMap.A] == 1):
+            self.stop = 0
+            self.move = 0
+            self.default = 1
+
+        print("stop:", self.stop)
 
     # Send command
     def SendCmd(self):
         self.low_cmd.crc = CRC().Crc(self.low_cmd)
         self.lowcmd_publisher_.Write(self.low_cmd)
+
 
 if __name__ == "__main__":
 
