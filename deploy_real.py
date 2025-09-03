@@ -1,4 +1,3 @@
-from legged_gym import LEGGED_GYM_ROOT_DIR
 import torch
 import time
 import sys
@@ -156,7 +155,7 @@ if __name__ == "__main__":
     else:
         ChannelFactoryInitialize(0, sys.argv[1])
 
-    config_path = f"{LEGGED_GYM_ROOT_DIR}/deploy/real/config/go2.yaml"
+    config_path = "deploy/real/config/go2.yaml"
     config = Config(config_path)
     rl_deploy = RLDeploy(config)
 
