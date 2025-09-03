@@ -1,6 +1,6 @@
 #
-policy_path: "{LEGGED_GYM_ROOT_DIR}/logs/rough_go2/exported/policies/policy_1.pt"
-encoder_path: "{LEGGED_GYM_ROOT_DIR}/logs/rough_go2/exported/policies/encoder_1.pt"
+policy_path: "model/policy_1.pt"
+encoder_path: "model/encoder_1.pt"
 
 # Controller update frequency (meets the requirement of simulation_dt * controll_decimation=0.02; 30Hz)
 
