@@ -143,6 +143,9 @@ class RLDeploy:
         pass
         # self.Forward()
 
+    def FSM(self):
+        pass
+
     # Send command
     def SendCmd(self):
         self.low_cmd.crc = CRC().Crc(self.low_cmd)
@@ -155,7 +158,7 @@ if __name__ == "__main__":
     else:
         ChannelFactoryInitialize(0, sys.argv[1])
 
-    config_path = "deploy/real/config/go2.yaml"
+    config_path = "config/go2.yaml"
     config = Config(config_path)
     rl_deploy = RLDeploy(config)
 
