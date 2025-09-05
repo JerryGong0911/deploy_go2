@@ -91,7 +91,7 @@ class RLDeploy:
             self.low_cmd.motor_cmd[i].q = 0
             self.low_cmd.motor_cmd[i].kp = 0
             self.low_cmd.motor_cmd[i].dq = 0
-            self.low_cmd.motor_cmd[i].kd = 1.
+            self.low_cmd.motor_cmd[i].kd = 3.
             self.low_cmd.motor_cmd[i].tau = 0
 
     def CreateZeroCmd(self):
