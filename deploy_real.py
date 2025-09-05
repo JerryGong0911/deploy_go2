@@ -9,6 +9,8 @@ from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_, unitree_go_m
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_, LowState_
 from unitree_sdk2py.utils.thread import RecurrentThread
 from unitree_sdk2py.utils.crc import CRC
+from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
+from unitree_sdk2py.go2.sport.sport_client import SportClient
 
 from common.remote_controller import KeyMap, RemoteController
 from common.rotation_helper import get_gravity_orientation
@@ -51,6 +53,21 @@ class RLDeploy:
         self.stop = 1
         self.ready = 0
         self.task_current_step = 0
+
+        self.sc = SportClient()  
+        self.sc.SetTimeout(5.0)
+        self.sc.Init()
+
+        self.msc = MotionSwitcherClient()
+        self.msc.SetTimeout(5.0)
+        self.msc.Init()
+
+        status, result = self.msc.CheckMode()
+        while result['name']:
+            self.sc.StandDown()
+            self.msc.ReleaseMode()
+            status, result = self.msc.CheckMode()
+            time.sleep(1)
 
         self.InitRecurrentThread()
 
