@@ -39,6 +39,7 @@ class RLDeploy:
 
         self.low_cmd = unitree_go_msg_dds__LowCmd_()
         self.low_state = unitree_go_msg_dds__LowState_()
+        self.InitLowCmd()
 
         self.lowcmd_publisher_ = ChannelPublisher("rt/lowcmd", LowCmd_)
         self.lowcmd_publisher_.Init()
@@ -51,7 +52,6 @@ class RLDeploy:
         self.ready = 0
         self.task_current_step = 0
 
-        self.InitLowCmd()
         self.InitRecurrentThread()
 
     # Handler for low state messages
@@ -185,16 +185,19 @@ class RLDeploy:
     def Ctrl(self):
         if (self.stop == 1):
             self.CreateDampingCmd()
+            print("Stop")
         elif (self.move == 1 and self.ready == 1):
             self.Forward()
+            print("Forward")
         elif (self.default == 1):
             if (self.ready == 1):
                 self.DefaultPosState()
+                print("Ready")
             else:
                 self.MoveToDefault()
+                print("Move to Default")
 
     def FSM(self):
-        print(self.remote_controller.button)
         self.last_stop = self.stop
         if (self.remote_controller.button[KeyMap.R1] == 1):
             self.stop = 1
@@ -209,8 +212,6 @@ class RLDeploy:
             self.stop = 0
             self.move = 0
             self.default = 1
-
-        print("stop:", self.stop)
 
     # Send command
     def SendCmd(self):
