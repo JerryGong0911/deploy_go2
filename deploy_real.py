@@ -56,20 +56,23 @@ class RLDeploy:
         self.task_current_step = 0
         self.climb_mode = 0
 
-        # self.sc = SportClient()  
-        # self.sc.SetTimeout(5.0)
-        # self.sc.Init()
+        if len(sys.argv) >= 2:
+            self.sc = SportClient()  
+            self.sc.SetTimeout(5.0)
+            self.sc.Init()
 
-        # self.msc = MotionSwitcherClient()
-        # self.msc.SetTimeout(5.0)
-        # self.msc.Init()
+            self.msc = MotionSwitcherClient()
+            self.msc.SetTimeout(5.0)
+            self.msc.Init()
 
-        # status, result = self.msc.CheckMode()
-        # while result['name']:
-        #     self.sc.StandDown()
-        #     self.msc.ReleaseMode()
-        #     status, result = self.msc.CheckMode()
-        #     time.sleep(1)
+            status, result = self.msc.CheckMode()
+            while result['name']:
+                self.sc.StandDown()
+                self.msc.ReleaseMode()
+                status, result = self.msc.CheckMode()
+                time.sleep(1)
+        else:
+            pass
 
         self.InitRecurrentThread()
 
