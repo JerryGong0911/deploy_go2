@@ -38,6 +38,7 @@ class RLDeploy:
         self.target_dof_pos = config.default_angles.copy()
         self.obs = np.zeros(config.num_obs, dtype=np.float32)
         self.cmd = np.zeros_like(config.max_cmd, dtype=np.float32)
+        self.cmd_max = np.zeros_like(config.max_cmd, dtype=np.float32)
 
         self.low_cmd = unitree_go_msg_dds__LowCmd_()
         self.low_state = unitree_go_msg_dds__LowState_()
@@ -53,21 +54,22 @@ class RLDeploy:
         self.stop = 1
         self.ready = 0
         self.task_current_step = 0
+        self.climb_mode = 0
 
-        self.sc = SportClient()  
-        self.sc.SetTimeout(5.0)
-        self.sc.Init()
+        # self.sc = SportClient()  
+        # self.sc.SetTimeout(5.0)
+        # self.sc.Init()
 
-        self.msc = MotionSwitcherClient()
-        self.msc.SetTimeout(5.0)
-        self.msc.Init()
+        # self.msc = MotionSwitcherClient()
+        # self.msc.SetTimeout(5.0)
+        # self.msc.Init()
 
-        status, result = self.msc.CheckMode()
-        while result['name']:
-            self.sc.StandDown()
-            self.msc.ReleaseMode()
-            status, result = self.msc.CheckMode()
-            time.sleep(1)
+        # status, result = self.msc.CheckMode()
+        # while result['name']:
+        #     self.sc.StandDown()
+        #     self.msc.ReleaseMode()
+        #     status, result = self.msc.CheckMode()
+        #     time.sleep(1)
 
         self.InitRecurrentThread()
 
@@ -185,7 +187,7 @@ class RLDeploy:
         # Convert to PyTorch tensors
         obs_tensor = torch.from_numpy(self.obs).unsqueeze(0)
         obs_history_tensor = torch.from_numpy(self.obs_history).unsqueeze(0)
-        cmd_tensor = torch.from_numpy(self.cmd * self.config.cmd_scale * self.config.max_cmd).unsqueeze(0)
+        cmd_tensor = torch.from_numpy(self.cmd * self.config.cmd_scale * self.cmd_max).unsqueeze(0)
 
         self.latents = self.encoder(obs_history_tensor).detach()
         self.action = self.policy(torch.cat([obs_tensor, cmd_tensor, self.latents], dim=1)).detach().numpy().squeeze()
@@ -200,6 +202,16 @@ class RLDeploy:
             self.low_cmd.motor_cmd[motor_idx].tau = 0.0
 
     def Ctrl(self):
+        self.CMDSwitch()
+        self.MotionSwitch()
+
+    def CMDSwitch(self):
+        if self.climb_mode == 1:
+            self.cmd_max = self.config.max_cmd_slope
+        else:
+            self.cmd_max = self.config.max_cmd
+
+    def MotionSwitch(self):
         if (self.stop == 1):
             self.CreateDampingCmd()
             print("Stop")
@@ -229,6 +241,11 @@ class RLDeploy:
             self.stop = 0
             self.move = 0
             self.default = 1
+
+        if (self.remote_controller.button[KeyMap.X] == 1):
+            self.climb_mode = 1
+        elif (self.remote_controller.button[KeyMap.Y] == 1):
+            self.climb_mode = 0
 
     # Send command
     def SendCmd(self):
