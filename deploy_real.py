@@ -252,7 +252,7 @@ class RLDeploy:
 
     # Send command
     def SendCmd(self):
-        self.low_cmd.crc = CRC().Crc(self.low_cmd)
+        self.low_cmd.crc = CRC.Crc(self.low_cmd)
         self.lowcmd_publisher_.Write(self.low_cmd)
 
 
