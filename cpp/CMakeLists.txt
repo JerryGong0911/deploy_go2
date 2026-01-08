@@ -3,9 +3,19 @@ project(go2_deploy_cpp)
 
 set(CMAKE_BUILD_TYPE Debug)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 
-set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_LIST_DIR}/library/thirdparty/libtorch/share/cmake")
+if(CMAKE_VERSION VERSION_LESS "3.18")
+    set(TORCH_CUDA_ARCH_LIST "8.7")
+endif()
+
+if(EXISTS "/etc/nv_tegra_release")
+    set(LIBTORCH_DIR "$ENV{HOME}/.local/lib/python3.8/site-packages/torch/")
+else()
+    set(LIBTORCH_DIR "${CMAKE_CURRENT_LIST_DIR}/library/thirdparty/libtorch")
+endif()
+set(CMAKE_PREFIX_PATH "${LIBTORCH_DIR};${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
 include_directories(${TORCH_INCLUDE_DIRS})
 
