@@ -2,8 +2,6 @@
 policy_path: "model/policy_1.pt"
 encoder_path: "model/encoder_1.pt"
 
-# Controller update frequency (meets the requirement of simulation_dt * controll_decimation=0.02; 30Hz)
-
 lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
 
