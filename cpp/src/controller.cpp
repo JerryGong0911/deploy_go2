@@ -6,7 +6,7 @@
 #define TOPIC_LOWCMD "rt/lowcmd"
 #define TOPIC_LOWSTATE "rt/lowstate"
 
-Controller::Controller(const std::string& net_interface) {
+Controller::Controller() {
   YAML::Node yaml_node = YAML::LoadFile("../../config/go2.yaml");
   motor_idx_ = yaml_node["leg_joint2motor_idx"].as<std::vector<int>>();
   kps_ = yaml_node["kps"].as<std::vector<float>>();
@@ -25,8 +25,6 @@ Controller::Controller(const std::string& net_interface) {
 
   InitLowCmd();
 
-  unitree::robot::ChannelFactory::Instance()->Init(0, net_interface);
-
   lowcmd_publisher_.reset(
       new unitree::robot::ChannelPublisher<unitree_go::msg::dds_::LowCmd_>(
           TOPIC_LOWCMD));
@@ -38,24 +36,42 @@ Controller::Controller(const std::string& net_interface) {
       std::bind(&Controller::LowStateMsgHandler, this, std::placeholders::_1),
       1);
 
-  // while (!low_state_.GetDataPtr()) {
-  //   usleep(100000);
-  // }
+  this->sc_.SetTimeout(10.0f);
+  this->sc_.Init();
+  this->msc_.SetTimeout(10.0f);
+  this->msc_.Init();
+
+  while (!low_state_.GetDataPtr()) {
+    usleep(100000);
+  }
+
+  while (this->QueryMotionStatus() == 0) {
+    std::cout << "Try to deactivate the motion control-related service."
+              << std::endl;
+    this->sc_.StandDown();
+    int32_t ret = this->msc_.ReleaseMode();
+    if (ret == 0) {
+      std::cout << "ReleaseMode succeeded." << std::endl;
+    } else {
+      std::cout << "ReleaseMode failed. Error code: " << ret << std::endl;
+    }
+    sleep(1);
+  }
 
   low_cmd_write_thread_ptr_ = unitree::common::CreateRecurrentThreadEx(
-      "low_cmd_write", UT_CPU_ID_NONE, 1000, &Controller::LowCmdWriteHandler,
+      "low_cmd_write", UT_CPU_ID_NONE, 2000, &Controller::LowCmdWriteHandler,
       this);
   fsm_thread_ptr_ = unitree::common::CreateRecurrentThreadEx(
       "fsm_handler", UT_CPU_ID_NONE, 10000, &Controller::FSMHandler, this);
   low_ctrl_thread_ptr_ = unitree::common::CreateRecurrentThreadEx(
-      "low_ctrl", UT_CPU_ID_NONE, 1000, &Controller::LowCtrlHandler, this);
+      "low_ctrl", UT_CPU_ID_NONE, 20000, &Controller::LowCtrlHandler, this);
   
   std::cout << "Controller initialized." << std::endl;
 }
 
 Controller::~Controller() {
-  Damp();
-  std::cout << "Controller Done" <<std::endl;
+  // Damp();
+  std::cout << "Controller Done" << std::endl;
 }
 
 void Controller::InitLowCmd() {
@@ -162,8 +178,6 @@ void Controller::LowStateMsgHandler(const void* message) {
   unitree_go::msg::dds_::LowState_* ptr =
       (unitree_go::msg::dds_::LowState_*)message;
   low_state_.SetData(*ptr);
-  // std::memcpy(&remote_, &ptr->wireless_remote(),
-  //             ptr->wireless_remote().size() * sizeof(uint8_t));
 }
 
 void Controller::LowCmdWriteHandler() {
@@ -180,6 +194,27 @@ void Controller::LowCmdWriteHandler() {
     low_cmd_ptr->crc() =
         crc32_core((uint32_t*)(low_cmd_ptr.get()),
                    (sizeof(unitree_go::msg::dds_::LowCmd_) >> 2) - 1);
-    lowcmd_publisher_->Write(*low_cmd_ptr);
+    std::cout << low_cmd_ptr->motor_cmd()[1].kd() << std::endl;
+    // lowcmd_publisher_->Write(*low_cmd_ptr);
   }
+}
+
+int Controller::QueryMotionStatus() {
+  std::string robotForm, motionName;
+  int motionStatus;
+  int32_t ret = msc_.CheckMode(robotForm, motionName);
+  if (ret == 0) {
+    std::cout << "CheckMode succeeded." << std::endl;
+  } else {
+    std::cout << "CheckMode failed. Error code: " << ret << std::endl;
+  }
+  if (motionName.empty()) {
+    std::cout << "The motion control-related service is deactivated."
+              << std::endl;
+    motionStatus = 0;
+  } else {
+    std::cout << "Service is activate" << std::endl;
+    motionStatus = 1;
+  }
+  return motionStatus;
 }
