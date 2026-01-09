@@ -46,7 +46,7 @@ Controller::Controller() {
   }
   std::cout << "Get LowState Succeeded." << std::endl;
 
-  while (this->QueryMotionStatus() == 0) {
+  while (this->QueryMotionStatus() == 1) {
     std::cout << "Try to deactivate the motion control-related service."
               << std::endl;
     this->sc_.StandDown();
