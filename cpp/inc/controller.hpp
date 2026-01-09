@@ -11,6 +11,7 @@
 #include <vector>
 #include "data_buffer.hpp"
 #include "model.hpp"
+#include "joystick.hpp"
 
 constexpr double PosStopF = (2.146E+9f);
 constexpr double VelStopF = (16000.0f);
@@ -55,6 +56,7 @@ class Controller {
   unitree::robot::go2::SportClient sc_;
 
   Obs<float> obs_;
+  Gamepad gamepad_;
   std::vector<int> motor_idx_;
   std::vector<float> kps_, kds_, init_pos_;
   std::vector<float> actions_, obs_history_, max_cmd_, cmd_scale_;

@@ -179,6 +179,10 @@ void Controller::LowStateMsgHandler(const void* message) {
   unitree_go::msg::dds_::LowState_* ptr =
       (unitree_go::msg::dds_::LowState_*)message;
   low_state_.SetData(*ptr);
+  REMOTE_DATA_RX rx_data;
+  memcpy(rx_data.buff, ptr->wireless_remote().data(), 40);
+  gamepad_.update(rx_data.RF_RX);
+  std::cout << gamepad_.L1.pressed << std::endl;
 }
 
 void Controller::LowCmdWriteHandler() {
