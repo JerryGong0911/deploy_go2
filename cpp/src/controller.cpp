@@ -44,6 +44,7 @@ Controller::Controller() {
   while (!low_state_.GetDataPtr()) {
     usleep(100000);
   }
+  std::cout << "Get LowState Succeeded." << std::endl;
 
   while (this->QueryMotionStatus() == 0) {
     std::cout << "Try to deactivate the motion control-related service."
@@ -194,8 +195,7 @@ void Controller::LowCmdWriteHandler() {
     low_cmd_ptr->crc() =
         crc32_core((uint32_t*)(low_cmd_ptr.get()),
                    (sizeof(unitree_go::msg::dds_::LowCmd_) >> 2) - 1);
-    std::cout << low_cmd_ptr->motor_cmd()[1].kd() << std::endl;
-    // lowcmd_publisher_->Write(*low_cmd_ptr);
+    lowcmd_publisher_->Write(*low_cmd_ptr);
   }
 }
 
