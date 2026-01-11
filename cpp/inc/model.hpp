@@ -8,10 +8,11 @@
 
 class Model {
  public:
-  Model(const std::string& _model_path);
-  ~Model();
+  Model();
+  ~Model() = default;
 
  public:
+  void Init(const std::string& _model_path);
   bool IsLoaded() { return loaded_; }
   std::vector<float> Forward(const std::vector<std::vector<float>>& input_vec);
 
