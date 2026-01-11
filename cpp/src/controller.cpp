@@ -5,9 +5,14 @@
 
 #define TOPIC_LOWCMD "rt/lowcmd"
 #define TOPIC_LOWSTATE "rt/lowstate"
+#define TOPIC_JOYSTICK "rt/wirelesscontroller"
 
-Controller::Controller() {
+Controller::Controller() : obs_history_(5, num_obs_) {
   YAML::Node yaml_node = YAML::LoadFile("../../config/go2.yaml");
+
+  policy_path_ = yaml_node["policy_path"].as<std::string>();
+  encoder_path_ = yaml_node["encoder_path"].as<std::string>();
+
   motor_idx_ = yaml_node["leg_joint2motor_idx"].as<std::vector<int>>();
   kps_ = yaml_node["kps"].as<std::vector<float>>();
   kds_ = yaml_node["kds"].as<std::vector<float>>();
@@ -24,6 +29,9 @@ Controller::Controller() {
   num_obs_ = yaml_node["num_obs"].as<int>();
 
   InitLowCmd();
+  obs_history_buf_.Init(5, num_obs_);
+  policy_.Init(policy_path_);
+  encoder_.Init(encoder_path_);
 
   lowcmd_publisher_.reset(
       new unitree::robot::ChannelPublisher<unitree_go::msg::dds_::LowCmd_>(
@@ -31,9 +39,15 @@ Controller::Controller() {
   lowstate_subscriber_.reset(
       new unitree::robot::ChannelSubscriber<unitree_go::msg::dds_::LowState_>(
           TOPIC_LOWSTATE));
+  joystick_subscriber_.reset(
+      new unitree::robot::ChannelSubscriber<
+          unitree_go::msg::dds_::WirelessController_>(TOPIC_JOYSTICK));
   lowcmd_publisher_->InitChannel();
   lowstate_subscriber_->InitChannel(
       std::bind(&Controller::LowStateMsgHandler, this, std::placeholders::_1),
+      1);
+  joystick_subscriber_->InitChannel(
+      std::bind(&Controller::JoystickMsgHandler, this, std::placeholders::_1),
       1);
 
   this->sc_.SetTimeout(10.0f);
@@ -66,7 +80,7 @@ Controller::Controller() {
       "fsm_handler", UT_CPU_ID_NONE, 10000, &Controller::FSMHandler, this);
   low_ctrl_thread_ptr_ = unitree::common::CreateRecurrentThreadEx(
       "low_ctrl", UT_CPU_ID_NONE, 20000, &Controller::LowCtrlHandler, this);
-  
+
   std::cout << "Controller initialized." << std::endl;
 }
 
@@ -159,7 +173,12 @@ void Controller::DefaultStand() {
   low_cmd_.SetDataPtr(low_cmd);
 }
 
-void Controller::FSMHandler() {}
+void Controller::FSMHandler() {
+  JoystickUpdate();
+
+  std::cout<< "A: " << gamepad_.A.on_press << std::endl;
+  std::cout<< "lx: " << gamepad_.lx <<  std::endl;
+}
 
 void Controller::LowCtrlHandler() {
   if (default_) {
@@ -179,10 +198,19 @@ void Controller::LowStateMsgHandler(const void* message) {
   unitree_go::msg::dds_::LowState_* ptr =
       (unitree_go::msg::dds_::LowState_*)message;
   low_state_.SetData(*ptr);
-  REMOTE_DATA_RX rx_data;
-  memcpy(rx_data.buff, ptr->wireless_remote().data(), 40);
-  gamepad_.update(rx_data.RF_RX);
-  std::cout << gamepad_.L1.pressed << std::endl;
+}
+
+void Controller::JoystickMsgHandler(const void* message) {
+  unitree_go::msg::dds_::WirelessController_* ptr =
+      (unitree_go::msg::dds_::WirelessController_*)message;
+  joystick_.SetData(*ptr);
+}
+
+void Controller::JoystickUpdate() {
+  auto joystick_ptr = joystick_.GetDataPtr();
+  xRockerBtnDataStruct key_data;
+  memcpy(&key_data, joystick_ptr.get(), sizeof(xRockerBtnDataStruct));
+  gamepad_.update(key_data);
 }
 
 void Controller::LowCmdWriteHandler() {

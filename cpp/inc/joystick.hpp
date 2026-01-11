@@ -28,21 +28,12 @@ typedef union {
 
 // 40 Byte (now used 24B)
 typedef struct {
-  uint8_t head[2];
-  xKeySwitchUnion btn;
   float lx;
+  float ly;
   float rx;
   float ry;
-  float L2;
-  float ly;
-
-  uint8_t idle[16];
+  xKeySwitchUnion btn;
 } xRockerBtnDataStruct;
-
-typedef union {
-  xRockerBtnDataStruct RF_RX;
-  uint8_t buff[40];
-} REMOTE_DATA_RX;
 
 class Button {
  public:
@@ -70,8 +61,6 @@ class Gamepad {
          (std::fabs(key_data.rx) < dead_zone ? 0.0 : key_data.rx) * smooth;
     ry = ry * (1 - smooth) +
          (std::fabs(key_data.ry) < dead_zone ? 0.0 : key_data.ry) * smooth;
-    l2 = l2 * (1 - smooth) +
-         (std::fabs(key_data.L2) < dead_zone ? 0.0 : key_data.L2) * smooth;
     ly = ly * (1 - smooth) +
          (std::fabs(key_data.ly) < dead_zone ? 0.0 : key_data.ly) * smooth;
 
@@ -94,10 +83,9 @@ class Gamepad {
   }
 
   float lx = 0.;
+  float ly = 0.;
   float rx = 0.;
   float ry = 0.;
-  float l2 = 0.;
-  float ly = 0.;
 
   float smooth = 0.03;
   float dead_zone = 0.01;

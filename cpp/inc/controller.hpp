@@ -4,14 +4,16 @@
 #include <string>
 #include <unitree/idl/go2/LowCmd_.hpp>
 #include <unitree/idl/go2/LowState_.hpp>
+#include <unitree/idl/go2/WirelessController_.hpp>
+#include <unitree/robot/b2/motion_switcher/motion_switcher_client.hpp>
 #include <unitree/robot/channel/channel_publisher.hpp>
 #include <unitree/robot/channel/channel_subscriber.hpp>
-#include <unitree/robot/b2/motion_switcher/motion_switcher_client.hpp>
 #include <unitree/robot/go2/sport/sport_client.hpp>
 #include <vector>
 #include "data_buffer.hpp"
-#include "model.hpp"
 #include "joystick.hpp"
+#include "model.hpp"
+#include "obs_buf.hpp"
 
 constexpr double PosStopF = (2.146E+9f);
 constexpr double VelStopF = (16000.0f);
@@ -36,30 +38,38 @@ class Controller {
   void Forward();
   void MoveToDefault();
   void DefaultStand();
+  void JoystickUpdate();
   void LowStateMsgHandler(const void* message);
+  void JoystickMsgHandler(const void* message);
   void LowCmdWriteHandler();
   void FSMHandler();
   void LowCtrlHandler();
   int QueryMotionStatus();
 
  private:
-  //   Model policy_, encoder_;
+  Model policy_, encoder_;
   DataBuffer<unitree_go::msg::dds_::LowCmd_> low_cmd_;
   DataBuffer<unitree_go::msg::dds_::LowState_> low_state_;
+  DataBuffer<unitree_go::msg::dds_::WirelessController_> joystick_;
   unitree::robot::ChannelPublisherPtr<unitree_go::msg::dds_::LowCmd_>
       lowcmd_publisher_;
   unitree::robot::ChannelSubscriberPtr<unitree_go::msg::dds_::LowState_>
       lowstate_subscriber_;
+  unitree::robot::ChannelSubscriberPtr<
+      unitree_go::msg::dds_::WirelessController_>
+      joystick_subscriber_;
   unitree::common::ThreadPtr low_cmd_write_thread_ptr_, fsm_thread_ptr_,
       low_ctrl_thread_ptr_;
   unitree::robot::b2::MotionSwitcherClient msc_;
   unitree::robot::go2::SportClient sc_;
 
   Obs<float> obs_;
+  ObsBuf obs_history_buf_;
   Gamepad gamepad_;
   std::vector<int> motor_idx_;
   std::vector<float> kps_, kds_, init_pos_;
   std::vector<float> actions_, obs_history_, max_cmd_, cmd_scale_;
+  std::string policy_path_, encoder_path_;
   float ang_vel_scale_, dof_pos_scale_, dof_vel_scale_, action_scale_;
   int num_actions_, num_obs_;
 
