@@ -1,6 +1,6 @@
 #
-policy_path: "model/policy_1.pt"
-encoder_path: "model/encoder_1.pt"
+policy_path: "../../model/policy_1.pt"
+encoder_path: "../../model/encoder_1.pt"
 
 lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
