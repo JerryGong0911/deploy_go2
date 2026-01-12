@@ -70,7 +70,7 @@ class Controller {
   Gamepad gamepad_;
   std::vector<int> motor_idx_;
   std::vector<float> kps_, kds_, init_pos_;
-  std::vector<float> actions_, obs_history_, max_cmd_, cmd_scale_;
+  std::vector<float> cmd_, obs_history_, max_cmd_, cmd_scale_;
   std::string policy_path_, encoder_path_;
   float ang_vel_scale_, dof_pos_scale_, dof_vel_scale_, action_scale_;
   int num_actions_, num_obs_;
