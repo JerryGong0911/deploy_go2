@@ -34,10 +34,10 @@ class Controller {
 
  private:
   void InitLowCmd();
-  void Damp();
-  void Forward();
-  void MoveToDefault();
-  void DefaultStand();
+  auto Damp();
+  auto Forward();
+  auto MoveToDefault();
+  auto DefaultStand();
   void JoystickUpdate();
   void LowStateMsgHandler(const void* message);
   void JoystickMsgHandler(const void* message);
@@ -73,7 +73,7 @@ class Controller {
   float ang_vel_scale_, dof_pos_scale_, dof_vel_scale_, action_scale_;
   int num_actions_, num_obs_;
 
-  bool move_ = false, ready_ = false, default_ = false;
+  bool move_ = false, ready_ = false, default_ = false, stop_ = false;
 };
 
 #endif
