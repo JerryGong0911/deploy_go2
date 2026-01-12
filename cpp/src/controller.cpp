@@ -7,7 +7,7 @@
 #define TOPIC_LOWSTATE "rt/lowstate"
 #define TOPIC_JOYSTICK "rt/wirelesscontroller"
 
-Controller::Controller() : obs_history_(5, num_obs_) {
+Controller::Controller() {
   YAML::Node yaml_node = YAML::LoadFile("../../config/go2.yaml");
 
   policy_path_ = yaml_node["policy_path"].as<std::string>();
@@ -27,7 +27,7 @@ Controller::Controller() : obs_history_(5, num_obs_) {
 
   num_actions_ = yaml_node["num_actions"].as<int>();
   num_obs_ = yaml_node["num_obs"].as<int>();
-  actions_.assign(num_actions_, 0.0f);
+  cmd_.assign(3, 0.0f);
   obs_.gyro.assign(3, 0.0f);
   obs_.accel.assign(3, 0.0f);
   obs_.q.assign(num_actions_, 0.0f);
@@ -142,6 +142,7 @@ auto Controller::Forward() {
   obs_history_ = obs_history_buf_.GetFlattenedData();
 
   auto latent = encoder_.Forward(obs_history_);
+  obs_vector.insert(obs_vector.end(), cmd_.begin(), cmd_.end());
   obs_vector.insert(obs_vector.end(), latent.begin(), latent.end());
   obs_.actions = policy_.Forward(obs_vector);
 
@@ -301,7 +302,7 @@ std::vector<float> Controller::ComputeObs() {
   std::copy(obs_.accel.begin(), obs_.accel.end(), obs.begin() + 3);
   std::copy(obs_.q.begin(), obs_.q.end(), obs.begin() + 6);
   std::copy(obs_.dq.begin(), obs_.dq.end(), obs.begin() + 6 + num_actions_);
-  std::copy(actions_.begin(), actions_.end(),
+  std::copy(obs_.actions.begin(), obs_.actions.end(),
             obs.begin() + 6 + 2 * num_actions_);
 
   return obs;
