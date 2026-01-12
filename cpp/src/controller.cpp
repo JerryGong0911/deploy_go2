@@ -27,6 +27,7 @@ Controller::Controller() : obs_history_(5, num_obs_) {
 
   num_actions_ = yaml_node["num_actions"].as<int>();
   num_obs_ = yaml_node["num_obs"].as<int>();
+  actions_.assign(num_actions_, 0.0f);
 
   InitLowCmd();
   obs_history_buf_.Init(5, num_obs_);
