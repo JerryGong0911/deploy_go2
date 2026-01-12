@@ -139,7 +139,11 @@ auto Controller::Forward() {
 
   std::vector<float> obs_vector = ComputeObs();
   obs_history_buf_.Insert(obs_vector);
-  std::cout << "Obs: " << obs_vector[0] << std::endl;
+  std::cout << "Obs: ";
+  for (const auto& val : obs_vector) {
+    std::cout << val << " ";
+  }
+  std::cout << std::endl;
   obs_history_ = obs_history_buf_.GetFlattenedData();
 
   for (int i = 0; i < motor_idx_.size(); ++i) {
