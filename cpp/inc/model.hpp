@@ -23,6 +23,7 @@ class Model {
   bool loaded_;
   std::string model_path_;
   torch::jit::script::Module model_;
+  torch::DeviceType device_type_ = torch::kCPU;
 };
 
 #endif
