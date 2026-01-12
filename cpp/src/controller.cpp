@@ -140,11 +140,14 @@ auto Controller::Forward() {
   std::vector<float> obs_vector = ComputeObs();
   obs_history_buf_.Insert(obs_vector);
   obs_history_ = obs_history_buf_.GetFlattenedData();
-  std::cout << obs_history_.size() << std::endl;
+
+  auto latent = encoder_.Forward(obs_history_);
+  obs_vector.insert(obs_vector.end(), latent.begin(), latent.end());
+  obs_.actions = policy_.Forward(obs_vector);
 
   for (int i = 0; i < motor_idx_.size(); ++i) {
     low_cmd->motor_cmd()[motor_idx_[i]].q() =
-        actions_[i] * action_scale_ + init_pos_[i];
+        obs_.actions[i] * action_scale_ + init_pos_[i];
     low_cmd->motor_cmd()[motor_idx_[i]].kp() = kps_[i];
     low_cmd->motor_cmd()[motor_idx_[i]].dq() = 0.0f;
     low_cmd->motor_cmd()[motor_idx_[i]].kd() = kds_[i];

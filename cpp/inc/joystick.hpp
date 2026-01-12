@@ -87,7 +87,7 @@ class Gamepad {
   float rx = 0.;
   float ry = 0.;
 
-  float smooth = 0.03;
+  float smooth = 0.99;
   float dead_zone = 0.01;
 
   Button R1;

@@ -14,10 +14,10 @@ class Model {
  public:
   void Init(const std::string& _model_path);
   bool IsLoaded() { return loaded_; }
-  std::vector<float> Forward(const std::vector<std::vector<float>>& input_vec);
+  std::vector<float> Forward(const std::vector<float>& input_data);
 
  private:
-  std::vector<float> Torch2Vec(const torch::Tensor& input);
+  std::vector<float> Torch2Vec(const torch::Tensor& _tensor);
 
  private:
   bool loaded_;
