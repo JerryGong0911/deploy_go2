@@ -31,3 +31,13 @@ uint32_t crc32_core(uint32_t* ptr, uint32_t len)
 
     return CRC32;
 }
+
+std::vector<float> GetGravityOrientation(const std::vector<float>& q) {
+    float qw = q[0], qx = q[1], qy = q[2], qz = q[3];
+
+    return {
+        2.0f * (qw * qy - qx * qz),          // x 分量
+        -2.0f * (qw * qx + qy * qz),         // y 分量
+        1.0f - 2.0f * (qw * qw + qz * qz)    // z 分量
+    };
+}

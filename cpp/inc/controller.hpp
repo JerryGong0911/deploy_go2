@@ -22,6 +22,7 @@ template <typename T>
 struct Obs {
   std::vector<T> gyro;
   std::vector<T> accel;
+  std::vector<T> quat;
   std::vector<T> q;
   std::vector<T> dq;
   std::vector<T> actions;
@@ -45,6 +46,7 @@ class Controller {
   void FSMHandler();
   void LowCtrlHandler();
   int QueryMotionStatus();
+  std::vector<float> ComputeObs();
 
  private:
   Model policy_, encoder_;

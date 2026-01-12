@@ -28,6 +28,11 @@ Controller::Controller() : obs_history_(5, num_obs_) {
   num_actions_ = yaml_node["num_actions"].as<int>();
   num_obs_ = yaml_node["num_obs"].as<int>();
   actions_.assign(num_actions_, 0.0f);
+  obs_.gyro.assign(3, 0.0f);
+  obs_.accel.assign(3, 0.0f);
+  obs_.q.assign(num_actions_, 0.0f);
+  obs_.dq.assign(num_actions_, 0.0f);
+  obs_.actions.assign(num_actions_, 0.0f);
 
   InitLowCmd();
   obs_history_buf_.Init(5, num_obs_);
@@ -120,6 +125,22 @@ auto Controller::Damp() {
 
 auto Controller::Forward() {
   auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
+  auto low_state = low_state_.GetDataPtr();
+
+  for (int i = 0; i < motor_idx_.size(); ++i) {
+    obs_.q[i] = low_state->motor_state()[motor_idx_[i]].q();
+    obs_.dq[i] = low_state->motor_state()[motor_idx_[i]].dq();
+  }
+  for (int i = 0; i < 3; ++i)
+    obs_.gyro[i] = low_state->imu_state().gyroscope()[i];
+
+  obs_.quat.assign(low_state->imu_state().quaternion().begin(),
+                   low_state->imu_state().quaternion().end());
+
+  std::vector<float> obs_vector = ComputeObs();
+  obs_history_buf_.Insert(obs_vector);
+  std::cout << "Obs: " << obs_vector[0] << std::endl;
+  obs_history_ = obs_history_buf_.GetFlattenedData();
 
   for (int i = 0; i < motor_idx_.size(); ++i) {
     low_cmd->motor_cmd()[motor_idx_[i]].q() =
@@ -260,4 +281,25 @@ int Controller::QueryMotionStatus() {
     motionStatus = 1;
   }
   return motionStatus;
+}
+
+std::vector<float> Controller::ComputeObs() {
+  std::vector<float> obs(num_obs_);
+
+  for (int i = 0; i < motor_idx_.size(); ++i) {
+    obs_.q[i] = dof_pos_scale_ * (obs_.q[i] - init_pos_[i]);
+    obs_.dq[i] = dof_vel_scale_ * obs_.dq[i];
+  }
+  for (int i = 0; i < 3; ++i)
+    obs_.gyro[i] = ang_vel_scale_ * obs_.gyro[i];
+  obs_.accel = GetGravityOrientation(obs_.quat);
+
+  std::copy(obs_.gyro.begin(), obs_.gyro.end(), obs.begin());
+  std::copy(obs_.accel.begin(), obs_.accel.end(), obs.begin() + 3);
+  std::copy(obs_.q.begin(), obs_.q.end(), obs.begin() + 6);
+  std::copy(obs_.dq.begin(), obs_.dq.end(), obs.begin() + 6 + num_actions_);
+  std::copy(actions_.begin(), actions_.end(),
+            obs.begin() + 6 + 2 * num_actions_);
+
+  return obs;
 }
