@@ -141,6 +141,9 @@ auto Controller::Forward() {
   obs_history_buf_.Insert(obs_vector);
   obs_history_ = obs_history_buf_.GetFlattenedData();
 
+  cmd_[0] = gamepad_.ly * max_cmd_[0] * cmd_scale_[0];
+  cmd_[1] = -gamepad_.lx * max_cmd_[1] * cmd_scale_[1];
+  cmd_[2] = -gamepad_.rx * max_cmd_[2] * cmd_scale_[2];
   auto latent = encoder_.Forward(obs_history_);
   obs_vector.insert(obs_vector.end(), cmd_.begin(), cmd_.end());
   obs_vector.insert(obs_vector.end(), latent.begin(), latent.end());
@@ -206,6 +209,11 @@ void Controller::FSMHandler() {
   } else if (gamepad_.R2.pressed) {
     default_ = false;
     ready_ = false;
+  } else if (gamepad_.A.pressed && gamepad_.L1.pressed) {
+    if (ready_) {
+      move_ = true;
+      default_ = false;
+    }
   }
 }
 
