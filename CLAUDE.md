@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 This is a reinforcement learning deployment system for the Unitree Go2 quadruped robot. The project has two implementations:
-- **Python**: `deploy_real.py` - Full-featured deployment with state machine
+- **Python**: `python/deploy_real.py` - Full-featured deployment with state machine
 - **C++**: `cpp/` - Performance-critical controller implementation
 
 Both implementations load PyTorch RL policies (encoder + policy models) and run inference to control the robot's 12 joint motors.
@@ -15,10 +15,10 @@ Both implementations load PyTorch RL policies (encoder + policy models) and run 
 ### Python Deployment (Primary)
 ```bash
 # Deploy with loopback interface (simulation/testing)
-python deploy_real.py
+cd python && python deploy_real.py
 
 # Deploy on real robot via network interface
-python deploy_real.py <interface>  # e.g., python deploy_real.py eth0
+cd python && python deploy_real.py <interface>  # e.g., python deploy_real.py eth0
 ```
 
 ### C++ Build
@@ -40,7 +40,7 @@ Edit `config/go2.yaml` to modify:
 
 ## Architecture
 
-### Python (`deploy_real.py`)
+### Python (`python/deploy_real.py`)
 - `RLDeploy` class: Main deployment controller
 - Uses Unitree SDK2 (DDS) for robot communication
 - Three recurrent threads: command write (1ms), control loop (20ms), FSM (10ms)
@@ -57,7 +57,7 @@ Edit `config/go2.yaml` to modify:
 ### Shared Components
 - `config/go2.yaml`: Robot and policy configuration
 - `model/`: PyTorch policy (`policy_1.pt`) and encoder (`encoder_1.pt`) models
-- `common/`: Python utilities
+- `python/common/`: Python utilities
   - `remote_controller.py`: Gamepad/joystick input parsing
   - `rotation_helper.py`: IMU quaternion to gravity orientation conversion
 
@@ -70,10 +70,10 @@ Edit `config/go2.yaml` to modify:
 6. Send LowCmd with target positions and PD gains
 
 ## Key Files
-- `deploy_real.py:160-206`: Main Forward() method - policy inference
+- `python/deploy_real.py:160-206`: Main Forward() method - policy inference
 - `cpp/src/controller.cpp:126-161`: C++ Forward() implementation
 - `config/go2.yaml`: All tunable parameters
-- `common/remote_controller.py:4-20`: Button/key mappings
+- `python/common/remote_controller.py:4-20`: Button/key mappings
 
 ## Dependencies
 - Python: `unitree_sdk2py`, `torch`, `numpy`, `yaml`, `scipy`
