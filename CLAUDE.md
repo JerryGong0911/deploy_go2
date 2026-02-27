@@ -4,131 +4,77 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This project deploys reinforcement learning models to control a Unitree Go2 quadruped robot. It implements a two-stage neural network architecture (encoder + policy) for locomotion control, with both Python and C++ implementations.
+This is a reinforcement learning deployment system for the Unitree Go2 quadruped robot. The project has two implementations:
+- **Python**: `deploy_real.py` - Full-featured deployment with state machine
+- **C++**: `cpp/` - Performance-critical controller implementation
 
-## Build and Run
+Both implementations load PyTorch RL policies (encoder + policy models) and run inference to control the robot's 12 joint motors.
 
-### Python Deployment
+## Common Commands
+
+### Python Deployment (Primary)
 ```bash
-# Local network deployment
+# Deploy with loopback interface (simulation/testing)
 python deploy_real.py
 
-# Network interface specified (e.g., "eth0", "en0")
-python deploy_real.py eth0
+# Deploy on real robot via network interface
+python deploy_real.py <interface>  # e.g., python deploy_real.py eth0
 ```
 
-### C++ Deployment
+### C++ Build
 ```bash
-# Build (from repo root)
-cd cpp/build && cmake .. && make
-
-# Or rebuild if build directory exists
-cd cpp/build && make
-
-# Run
-./go2_deploy_cpp
+cd cpp/build
+cmake ..
+make -j$(nproc)
 ```
 
-### Dependencies
-- Python: `torch`, `numpy`, `yaml`, `scipy`, `unitree_sdk2py`
-- C++: `libtorch`, `unitree_sdk2`, `yaml-cpp`, `dds`/`ddscxx`
+The C++ binary will be at `cpp/build/go2_deploy_cpp`.
+
+### Configuration
+Edit `config/go2.yaml` to modify:
+- Model paths (`policy_path`, `encoder_path`)
+- Motor indices (`leg_joint2motor_idx`)
+- PID gains (`kps`, `kds`)
+- Default joint angles (`default_angles`)
+- Observation/action scaling factors
 
 ## Architecture
 
-### Dual Implementation Structure
+### Python (`deploy_real.py`)
+- `RLDeploy` class: Main deployment controller
+- Uses Unitree SDK2 (DDS) for robot communication
+- Three recurrent threads: command write (1ms), control loop (20ms), FSM (10ms)
+- Remote controller input maps to velocity commands
+- State machine: Stop → Move → Default Stand
 
-The project has two implementations that provide equivalent functionality:
+### C++ (`cpp/`)
+- `Controller` class: Main controller in `controller.cpp`
+- Uses Unitree SDK2 with C++ bindings
+- `Model` class: PyTorch model loading/inference (`model.cpp`)
+- `obs_buf.cpp`: Observation history buffer for encoder
+- Headers in `inc/` directory
 
-1. **Python** (`deploy_real.py`, `common/`, `config.py`) - Reference implementation
-2. **C++** (`cpp/src/`, `cpp/inc/`) - Production implementation
+### Shared Components
+- `config/go2.yaml`: Robot and policy configuration
+- `model/`: PyTorch policy (`policy_1.pt`) and encoder (`encoder_1.pt`) models
+- `common/`: Python utilities
+  - `remote_controller.py`: Gamepad/joystick input parsing
+  - `rotation_helper.py`: IMU quaternion to gravity orientation conversion
 
-When modifying behavior, ensure both implementations stay aligned or document any intentional differences.
+### Robot Control Flow
+1. Receive LowState (motor positions, velocities, IMU data)
+2. Compute observation (normalized joint angles, velocities, angular velocity, gravity vector)
+3. Pass observation + command through encoder to get latent
+4. Pass observation + command + latent through policy to get action
+5. Convert action to target joint positions
+6. Send LowCmd with target positions and PD gains
 
-### Core Components
+## Key Files
+- `deploy_real.py:160-206`: Main Forward() method - policy inference
+- `cpp/src/controller.cpp:126-161`: C++ Forward() implementation
+- `config/go2.yaml`: All tunable parameters
+- `common/remote_controller.py:4-20`: Button/key mappings
 
-#### 1. Neural Network Inference
-- **Encoder** (`model/encoder_1.pt`): Processes observation history into latent representation
-- **Policy** (`model/policy_1.pt`): Maps current observation + latent + command to motor actions
-- Both are PyTorch JIT models loaded at runtime
-
-#### 2. Control Loop Architecture (C++)
-
-Three recurrent threads running at different rates:
-
-| Thread | Rate (Hz) | Purpose |
-|--------|-----------|---------|
-| `low_cmd_write` | 500 | Publish motor commands via DDS |
-| `low_ctrl` | 50 | Execute FSM-selected motion mode |
-| `fsm_handler` | 100 | Process joystick input and update FSM state |
-
-#### 3. Observation Processing
-
-Observation vector structure (42 dimensions):
-- `0:2`: Angular velocity (gyro, scaled)
-- `3:5`: Gravity orientation (from IMU quaternion)
-- `6:17`: Joint positions (12 DOF, normalized relative to default)
-- `18:29`: Joint velocities (12 DOF)
-- `30:41`: Previous actions (12 DOF)
-
-The `ObsBuf` class maintains a 5-step history buffer, which the encoder processes into a latent vector.
-
-#### 4. FSM States
-
-The controller operates in three modes controlled by gamepad buttons:
-
-| Mode | Gamepad Trigger | Behavior |
-|------|-----------------|----------|
-| `stop` | R1 | Damping (low stiffness, high damping) |
-| `default` | L2 | Move to default pose, then maintain |
-| `move` | L1 + A (when ready) | RL policy inference and control |
-
-C++ uses: `L2` to enter default mode, `A+L1` to enter move mode
-Python uses: `R1` for stop, `L1+B` for move, `L1+A` for default
-
-#### 5. DDS Communication Topics
-
-- `rt/lowcmd`: Motor commands (published)
-- `rt/lowstate`: IMU and motor state (subscribed)
-- `rt/wirelesscontroller`: Gamepad input (subscribed)
-
-### Key C++ Classes
-
-- **`Controller`**: Main orchestration class, manages all threads and state
-- **`Model`**: Wraps PyTorch JIT model loading and inference
-- **`ObsBuf`**: Rolling buffer for observation history
-- **`DataBuffer<T>`**: Thread-safe data exchange with atomic locks
-- **`Gamepad`**: Joystick state with smoothing and deadzone handling
-- **`Button`**: Tracks pressed/on_press/on_release states
-
-### Configuration
-
-`config/go2.yaml` contains:
-- Model paths
-- Joint-to-motor mapping (12 legs joints map to specific motor indices)
-- PD gains (`kps`, `kds`)
-- Default joint angles
-- Observation/action/cmd scaling factors
-
-## Motor Index Mapping
-
-The robot has 20 motors total. The 12 leg joints are mapped via `leg_joint2motor_idx`:
-- Left front: [3, 4, 5] (hip, thigh, calf)
-- Right front: [0, 1, 2]
-- Left rear: [9, 10, 11]
-- Right rear: [6, 7, 8]
-
-## Code Location Patterns
-
-- C++ headers: `cpp/inc/*.hpp`
-- C++ sources: `cpp/src/*.cpp`
-- Python utilities: `common/*.py`
-- Models: `model/*.pt`
-- Config: `config/go2.yaml`
-
-## Motion Switcher Integration (Optional)
-
-Both implementations support motion switcher integration to release built-in Go2 motion control. This is currently commented out in the C++ code but present in the Python implementation when run with arguments.
-
-When implementing changes that affect the motion pipeline:
-- Python: Check `MotionSwitcherClient` usage in `__main__`
-- C++: See commented code in `Controller` constructor related to `sc_` (SportClient) and `msc_` (MotionSwitcherClient)
+## Dependencies
+- Python: `unitree_sdk2py`, `torch`, `numpy`, `yaml`, `scipy`
+- C++: `unitree_sdk2`, `libtorch`, `yaml-cpp`, `iceoryx`, `ddscxx`
