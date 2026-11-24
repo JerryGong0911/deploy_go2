@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a reinforcement learning deployment system for the Unitree Go2 quadruped robot. This is the **C++** branch: `cpp/` contains the controller implementation. (The Python implementation lives on the `python` branch.)
+This is a reinforcement learning deployment system for the Unitree Go2 quadruped robot. This is the **C++** branch: the controller implementation lives at the repository root (`src/`, `inc/`, `CMakeLists.txt`). (The Python implementation lives on the `python` branch.)
 
 It loads PyTorch RL policies (encoder + policy models) and runs inference to control the robot's 12 joint motors.
 
@@ -12,12 +12,12 @@ It loads PyTorch RL policies (encoder + policy models) and runs inference to con
 
 ### C++ Build
 ```bash
-cd cpp/build
+mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
 ```
 
-The C++ binary will be at `cpp/build/go2_deploy_cpp`.
+The C++ binary will be at `build/go2_deploy_cpp`. Run it from `build/`: config and model paths are relative to that directory (`../config/go2.yaml`, `../model/`).
 
 ### Configuration
 Edit `config/go2.yaml` to modify:
@@ -29,7 +29,7 @@ Edit `config/go2.yaml` to modify:
 
 ## Architecture
 
-### C++ (`cpp/`)
+### C++ (`src/`, `inc/`)
 - `Controller` class: Main controller in `controller.cpp`
 - Uses Unitree SDK2 with C++ bindings
 - `Model` class: PyTorch model loading/inference (`model.cpp`)
@@ -49,7 +49,7 @@ Edit `config/go2.yaml` to modify:
 6. Send LowCmd with target positions and PD gains
 
 ## Key Files
-- `cpp/src/controller.cpp:126-161`: C++ Forward() implementation
+- `src/controller.cpp:126-161`: C++ Forward() implementation
 - `config/go2.yaml`: All tunable parameters
 
 ## Dependencies

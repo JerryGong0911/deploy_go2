@@ -8,7 +8,7 @@
 #define TOPIC_JOYSTICK "rt/wirelesscontroller"
 
 Controller::Controller() {
-  YAML::Node yaml_node = YAML::LoadFile("../../config/go2.yaml");
+  YAML::Node yaml_node = YAML::LoadFile("../config/go2.yaml");
 
   policy_path_ = yaml_node["policy_path"].as<std::string>();
   encoder_path_ = yaml_node["encoder_path"].as<std::string>();
