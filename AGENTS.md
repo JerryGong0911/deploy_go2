@@ -5,7 +5,7 @@ This repository deploys RL locomotion policies for Unitree Go2 with a C++ implem
 
 - `src/`, `inc/`, `CMakeLists.txt`: C++ runtime producing `go2_deploy_cpp`.
 - `config/go2.yaml`: shared runtime configuration (model paths, gains, scaling, topics).
-- `model/`: TorchScript artifacts (`policy_1.pt`, `encoder_1.pt`).
+- `model/`: ONNX models used at runtime (`policy_1.onnx`, `encoder_1.onnx`), exported from the TorchScript `.pt` files.
 - `CLAUDE.md`: architecture and quick build/run notes for contributors.
 
 When control logic changes here, consider whether the `python` branch needs the same change.

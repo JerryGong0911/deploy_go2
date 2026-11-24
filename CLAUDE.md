@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a reinforcement learning deployment system for the Unitree Go2 quadruped robot. This is the **C++** branch: the controller implementation lives at the repository root (`src/`, `inc/`, `CMakeLists.txt`). (The Python implementation lives on the `python` branch.)
 
-It loads PyTorch RL policies (encoder + policy models) and runs inference to control the robot's 12 joint motors.
+It loads ONNX RL policies (encoder + policy models) and runs CPU inference with ONNX Runtime to control the robot's 12 joint motors.
 
 ## Common Commands
 
@@ -32,13 +32,13 @@ Edit `config/go2.yaml` to modify:
 ### C++ (`src/`, `inc/`)
 - `Controller` class: Main controller in `controller.cpp`
 - Uses Unitree SDK2 with C++ bindings
-- `Model` class: PyTorch model loading/inference (`model.cpp`)
+- `Model` class: ONNX Runtime model loading/inference, single-threaded CPU (`model.cpp`)
 - `obs_buf.cpp`: Observation history buffer for encoder
 - Headers in `inc/` directory
 
 ### Components
 - `config/go2.yaml`: Robot and policy configuration
-- `model/`: PyTorch policy (`policy_1.pt`) and encoder (`encoder_1.pt`) models
+- `model/`: ONNX policy (`policy_1.onnx`) and encoder (`encoder_1.onnx`) models, exported from the TorchScript `.pt` files
 
 ### Robot Control Flow
 1. Receive LowState (motor positions, velocities, IMU data)
@@ -53,4 +53,4 @@ Edit `config/go2.yaml` to modify:
 - `config/go2.yaml`: All tunable parameters
 
 ## Dependencies
-- C++: `unitree_sdk2`, `libtorch`, `yaml-cpp`, `iceoryx`, `ddscxx`
+- C++: `unitree_sdk2`, ONNX Runtime (prebuilt package in `library/thirdparty/onnxruntime` or `-DORT_DIR=...`; aarch64 build on Jetson), `yaml-cpp`, `iceoryx`, `ddscxx`

@@ -1,5 +1,8 @@
 #include "controller.hpp"
 #include <yaml-cpp/yaml.h>
+#include <unistd.h>
+#include <array>
+#include <iostream>
 #include <string>
 #include "unlities.hpp"
 
