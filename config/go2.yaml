@@ -7,8 +7,8 @@ real_robot: false
 network_interface: "eth0"   # NIC connected to the robot (real_robot only)
 sim_domain_id: 1            # must match domain_id in unitree_mujoco config
 
-policy_path: "../model/policy_1.onnx"
-encoder_path: "../model/encoder_1.onnx"
+policy_path: "../model/policy.onnx"
+encoder_path: "../model/encoder.onnx"
 
 lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
