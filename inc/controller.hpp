@@ -1,6 +1,7 @@
 #ifndef __CONTROLLER_HPP__
 #define __CONTROLLER_HPP__
 
+#include <memory>
 #include <string>
 #include <unitree/idl/go2/LowCmd_.hpp>
 #include <unitree/idl/go2/LowState_.hpp>
@@ -28,6 +29,8 @@ struct Obs {
   std::vector<T> actions;
 };
 
+using LowCmdPtr = std::shared_ptr<unitree_go::msg::dds_::LowCmd_>;
+
 class Controller {
  public:
   Controller();
@@ -35,10 +38,11 @@ class Controller {
 
  private:
   void InitLowCmd();
-  auto Damp();
-  auto Forward();
-  auto MoveToDefault();
-  auto DefaultStand();
+  LowCmdPtr Damp();
+  LowCmdPtr Forward();
+  LowCmdPtr MoveToDefault();
+  LowCmdPtr DefaultStand();
+  void SetExecutedActions(const LowCmdPtr& cmd);
   void JoystickUpdate();
   void LowStateMsgHandler(const void* message);
   void JoystickMsgHandler(const void* message);
@@ -76,6 +80,10 @@ class Controller {
   int num_actions_, num_obs_;
 
   bool move_ = false, ready_ = false, default_ = false, stop_ = false;
+
+  // Owned by the low_ctrl thread only.
+  int interp_step_ = 0;               // MoveToDefault progress, 0 = not started
+  std::vector<float> interp_start_;   // joint positions when interpolation began
 };
 
 #endif

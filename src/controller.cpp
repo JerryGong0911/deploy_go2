@@ -1,7 +1,6 @@
 #include "controller.hpp"
 #include <yaml-cpp/yaml.h>
 #include <unistd.h>
-#include <array>
 #include <iostream>
 #include <string>
 #include "unlities.hpp"
@@ -36,6 +35,7 @@ Controller::Controller() {
   obs_.q.assign(num_actions_, 0.0f);
   obs_.dq.assign(num_actions_, 0.0f);
   obs_.actions.assign(num_actions_, 0.0f);
+  interp_start_.assign(motor_idx_.size(), 0.0f);
 
   InitLowCmd();
   obs_history_buf_.Init(5, num_obs_);
@@ -64,7 +64,9 @@ Controller::Controller() {
   this->msc_.SetTimeout(10.0f);
   this->msc_.Init();
 
-  while (!low_state_.GetDataPtr() && !joystick_.GetDataPtr()) {
+  // Wait for LowState only; the joystick is optional (e.g. sim without pad).
+  std::cout << "Waiting for LowState..." << std::endl;
+  while (!low_state_.GetDataPtr()) {
     usleep(100000);
   }
   std::cout << "Get LowState Succeeded." << std::endl;
@@ -113,7 +115,7 @@ void Controller::InitLowCmd() {
   low_cmd_.SetDataPtr(low_cmd);
 }
 
-auto Controller::Damp() {
+LowCmdPtr Controller::Damp() {
   auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
 
   for (int i = 0; i < 20; ++i) {
@@ -126,7 +128,20 @@ auto Controller::Damp() {
   return low_cmd;
 }
 
-auto Controller::Forward() {
+// The policy runs every step (shadow mode) to keep the observation history
+// and latent current. When its output is NOT executed, overwrite the "last
+// action" fed back into the observation with the action equivalent of the
+// command that was actually sent, so the history stays self-consistent.
+// Joints without a position target (kp == 0, e.g. damping) map to 0.
+void Controller::SetExecutedActions(const LowCmdPtr& cmd) {
+  for (size_t i = 0; i < motor_idx_.size(); ++i) {
+    const auto& m = cmd->motor_cmd()[motor_idx_[i]];
+    obs_.actions[i] =
+        m.kp() > 0.0f ? (m.q() - init_pos_[i]) / action_scale_ : 0.0f;
+  }
+}
+
+LowCmdPtr Controller::Forward() {
   auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
   auto low_state = low_state_.GetDataPtr();
 
@@ -163,36 +178,40 @@ auto Controller::Forward() {
   return low_cmd;
 }
 
-auto Controller::MoveToDefault() {
-  static int total_steps = 0;
-  static const int max_steps = (int)(2.0f / 0.02f);
-  auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
+// Linear interpolation from the joint positions at the start of the move to
+// the default pose over 2 s. interp_step_ is reset by LowCtrlHandler whenever
+// another mode runs, so every new request starts from the current pose.
+LowCmdPtr Controller::MoveToDefault() {
+  static const int kInterpSteps = (int)(2.0f / 0.02f);
 
-  auto low_state = low_state_.GetDataPtr();
-  std::array<float, 12> current_pos;
-  for (int i = 0; i < motor_idx_.size(); ++i) {
-    current_pos[i] = low_state->motor_state()[motor_idx_[i]].q();
+  if (interp_step_ >= kInterpSteps) {
+    interp_step_ = 0;
+    ready_ = true;
+    return DefaultStand();  // never return an unfilled (zero-gain) command
   }
 
-  if (total_steps < max_steps && !ready_) {
-    float alpha = (float)(total_steps) / (float)(max_steps);
-    for (int i = 0; i < motor_idx_.size(); ++i) {
-      low_cmd->motor_cmd()[motor_idx_[i]].q() =
-          (1 - alpha) * current_pos[i] + alpha * init_pos_[i];
-      low_cmd->motor_cmd()[motor_idx_[i]].kp() = 40.f;
-      low_cmd->motor_cmd()[motor_idx_[i]].dq() = 0.0f;
-      low_cmd->motor_cmd()[motor_idx_[i]].kd() = 1.f;
-      low_cmd->motor_cmd()[motor_idx_[i]].tau() = 0.0f;
-    }
-    total_steps++;
-  } else {
-    total_steps = 0;
-    ready_ = true;
+  if (interp_step_ == 0) {
+    auto low_state = low_state_.GetDataPtr();
+    for (size_t i = 0; i < motor_idx_.size(); ++i)
+      interp_start_[i] = low_state->motor_state()[motor_idx_[i]].q();
+  }
+
+  ++interp_step_;
+  float alpha = (float)interp_step_ / (float)kInterpSteps;  // (0, 1]
+
+  auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
+  for (size_t i = 0; i < motor_idx_.size(); ++i) {
+    low_cmd->motor_cmd()[motor_idx_[i]].q() =
+        (1 - alpha) * interp_start_[i] + alpha * init_pos_[i];
+    low_cmd->motor_cmd()[motor_idx_[i]].kp() = 40.f;
+    low_cmd->motor_cmd()[motor_idx_[i]].dq() = 0.0f;
+    low_cmd->motor_cmd()[motor_idx_[i]].kd() = 1.f;
+    low_cmd->motor_cmd()[motor_idx_[i]].tau() = 0.0f;
   }
   return low_cmd;
 }
 
-auto Controller::DefaultStand() {
+LowCmdPtr Controller::DefaultStand() {
   auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
   for (int i = 0; i < motor_idx_.size(); ++i) {
     low_cmd->motor_cmd()[motor_idx_[i]].q() = init_pos_[i];
@@ -221,15 +240,35 @@ void Controller::FSMHandler() {
 }
 
 void Controller::LowCtrlHandler() {
-  std::shared_ptr<unitree_go::msg::dds_::LowCmd_> target_cmd;
-  auto forward_cmd = Forward();
-  if (default_) {
-    target_cmd = (ready_ ? DefaultStand() : MoveToDefault());
-  } else if (move_ && ready_) {
-    target_cmd = forward_cmd;
+  // No state yet: keep publishing the current (initial) command.
+  if (!low_state_.GetDataPtr())
+    return;
+
+  // Snapshot the flags once so this step sees a consistent mode.
+  const bool is_default = default_, is_move = move_, is_ready = ready_;
+
+  // Run the policy every step so history/latent are current at hand-over.
+  LowCmdPtr policy_cmd = Forward();
+
+  LowCmdPtr target_cmd;
+  bool interpolating = false;
+  if (is_default) {
+    if (is_ready) {
+      target_cmd = DefaultStand();
+    } else {
+      target_cmd = MoveToDefault();
+      interpolating = true;
+    }
+  } else if (is_move && is_ready) {
+    target_cmd = policy_cmd;
   } else {
     target_cmd = Damp();
   }
+
+  if (target_cmd != policy_cmd)
+    SetExecutedActions(target_cmd);  // policy output was not executed
+  if (!interpolating)
+    interp_step_ = 0;  // next MoveToDefault starts fresh from the current pose
   low_cmd_.SetDataPtr(target_cmd);
 }
 
