@@ -9,7 +9,7 @@ void SignalHandler(int signum) {
 int main(int argc, char **argv) {
 
   signal(SIGINT, SignalHandler);
-  unitree::robot::ChannelFactory::Instance()->Init(0, argv[1]);
+  unitree::robot::ChannelFactory::Instance()->Init(0, "lo");
   Controller controller;
   while (!stop_signal) {
     sleep(1);

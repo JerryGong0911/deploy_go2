@@ -17,7 +17,7 @@ Controller::Controller() {
   kps_ = yaml_node["kps"].as<std::vector<float>>();
   kds_ = yaml_node["kds"].as<std::vector<float>>();
   init_pos_ = yaml_node["default_angles"].as<std::vector<float>>();
-  max_cmd_ = yaml_node["max_cmd"].as<std::vector<float>>();
+  max_cmd_ = yaml_node["max_cmd_slope"].as<std::vector<float>>();
 
   cmd_scale_ = yaml_node["cmd_scale"].as<std::vector<float>>();
   ang_vel_scale_ = yaml_node["ang_vel_scale"].as<float>();
