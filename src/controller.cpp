@@ -9,9 +9,10 @@
 #define TOPIC_LOWSTATE "rt/lowstate"
 #define TOPIC_JOYSTICK "rt/wirelesscontroller"
 
-Controller::Controller() {
-  YAML::Node yaml_node = YAML::LoadFile("../config/go2.yaml");
+Controller::Controller(const std::string& config_path) {
+  YAML::Node yaml_node = YAML::LoadFile(config_path);
 
+  real_robot_ = yaml_node["real_robot"].as<bool>();
   policy_path_ = yaml_node["policy_path"].as<std::string>();
   encoder_path_ = yaml_node["encoder_path"].as<std::string>();
 
@@ -59,10 +60,13 @@ Controller::Controller() {
       std::bind(&Controller::JoystickMsgHandler, this, std::placeholders::_1),
       1);
 
-  this->sc_.SetTimeout(10.0f);
-  this->sc_.Init();
-  this->msc_.SetTimeout(10.0f);
-  this->msc_.Init();
+  // The sport / motion-switcher services only exist on the real robot.
+  if (real_robot_) {
+    this->sc_.SetTimeout(10.0f);
+    this->sc_.Init();
+    this->msc_.SetTimeout(10.0f);
+    this->msc_.Init();
+  }
 
   // Wait for LowState only; the joystick is optional (e.g. sim without pad).
   std::cout << "Waiting for LowState..." << std::endl;
@@ -71,7 +75,8 @@ Controller::Controller() {
   }
   std::cout << "Get LowState Succeeded." << std::endl;
 
-  while (this->QueryMotionStatus() == 1) {
+  // Release the built-in locomotion controller so it does not fight lowcmd.
+  while (real_robot_ && this->QueryMotionStatus() == 1) {
     std::cout << "Try to deactivate the motion control-related service."
               << std::endl;
     this->sc_.StandDown();

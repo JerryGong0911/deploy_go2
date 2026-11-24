@@ -1,4 +1,12 @@
 #
+# Deployment target
+#   real_robot: true  -> real Go2, DDS domain 0 on network_interface,
+#                        sport/motion services are released at startup
+#   real_robot: false -> unitree_mujoco, DDS domain sim_domain_id on "lo"
+real_robot: false
+network_interface: "eth0"   # NIC connected to the robot (real_robot only)
+sim_domain_id: 1            # must match domain_id in unitree_mujoco config
+
 policy_path: "../model/policy_1.onnx"
 encoder_path: "../model/encoder_1.onnx"
 

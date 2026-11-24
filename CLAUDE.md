@@ -21,6 +21,7 @@ The C++ binary will be at `build/go2_deploy_cpp`. Run it from `build/`: config a
 
 ### Configuration
 Edit `config/go2.yaml` to modify:
+- Deployment target: `real_robot` (true: real Go2, DDS domain 0 on `network_interface`; false: unitree_mujoco, DDS domain `sim_domain_id` on `lo`)
 - Model paths (`policy_path`, `encoder_path`)
 - Motor indices (`leg_joint2motor_idx`)
 - PID gains (`kps`, `kds`)

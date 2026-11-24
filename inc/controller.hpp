@@ -33,7 +33,7 @@ using LowCmdPtr = std::shared_ptr<unitree_go::msg::dds_::LowCmd_>;
 
 class Controller {
  public:
-  Controller();
+  explicit Controller(const std::string& config_path);
   ~Controller();
 
  private:
@@ -79,6 +79,7 @@ class Controller {
   float ang_vel_scale_, dof_pos_scale_, dof_vel_scale_, action_scale_;
   int num_actions_, num_obs_;
 
+  bool real_robot_ = false;
   bool move_ = false, ready_ = false, default_ = false, stop_ = false;
 
   // Owned by the low_ctrl thread only.
