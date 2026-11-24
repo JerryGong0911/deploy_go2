@@ -33,14 +33,15 @@ void Model::Init(const std::string& _model_path) {
         session_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape();
     input_size_ = 1;
     for (auto& d : input_shape_) {
-      if (d < 0) d = 1;  // dynamic batch -> 1
+      if (d < 0)
+        d = 1;  // dynamic batch -> 1
       input_size_ *= static_cast<size_t>(d);
     }
     input_buf_.assign(input_size_, 0.0f);
     loaded_ = true;
 
     // Warm up so the first control step does not pay for allocations.
-    Forward(input_buf_);
+    Forward(std::vector<float>(input_size_, 0.0f));
   } catch (const std::exception& e) {
     loaded_ = false;
     session_.reset();
@@ -65,8 +66,8 @@ std::vector<float> Model::Forward(const std::vector<float>& input_data) {
 
     const char* in_names[] = {input_name_.c_str()};
     const char* out_names[] = {output_name_.c_str()};
-    auto outputs = session_->Run(Ort::RunOptions{nullptr}, in_names, &input,
-                                 1, out_names, 1);
+    auto outputs = session_->Run(Ort::RunOptions{nullptr}, in_names, &input, 1,
+                                 out_names, 1);
 
     const float* out = outputs[0].GetTensorData<float>();
     size_t n = outputs[0].GetTensorTypeAndShapeInfo().GetElementCount();
