@@ -25,6 +25,7 @@ class RLDeploy:
         self.num_actions = self.config.num_actions
 
         self.remote_controller = RemoteController()
+        self.crc = CRC()
 
         # Initialize the policy network
         self.policy = torch.jit.load(config.policy_path)
@@ -252,7 +253,7 @@ class RLDeploy:
 
     # Send command
     def SendCmd(self):
-        self.low_cmd.crc = CRC.Crc(self.low_cmd)
+        self.low_cmd.crc = self.crc.Crc(self.low_cmd)
         self.lowcmd_publisher_.Write(self.low_cmd)
 
 
@@ -263,7 +264,7 @@ if __name__ == "__main__":
     else:
         ChannelFactoryInitialize(0, sys.argv[1])
 
-    config_path = "config/go2.yaml"
+    config_path = "go2.yaml"
     config = Config(config_path)
     rl_deploy = RLDeploy(config)
 
