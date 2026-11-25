@@ -10,6 +10,17 @@
 #define TOPIC_LOWSTATE "rt/lowstate"
 #define TOPIC_JOYSTICK "rt/wirelesscontroller"
 
+namespace {
+// Rate limit for warnings raised inside the control / DDS loops.
+bool ShouldWarn(std::chrono::steady_clock::time_point* last) {
+  auto now = std::chrono::steady_clock::now();
+  if (now - *last < std::chrono::seconds(1))
+    return false;
+  *last = now;
+  return true;
+}
+}  // namespace
+
 Controller::Controller(const std::string& config_path) {
   YAML::Node yaml_node = YAML::LoadFile(config_path);
 
@@ -47,11 +58,8 @@ Controller::Controller(const std::string& config_path) {
   obs_history_buf_.Init(obs_history_len_, num_obs_);
   policy_.Init(policy_path_);
   encoder_.Init(encoder_path_);
-  if (encoder_.InputSize() != (size_t)(obs_history_len_ * num_obs_))
-    throw std::runtime_error(
-        "encoder input size " + std::to_string(encoder_.InputSize()) +
-        " != obs_history_len (" + std::to_string(obs_history_len_) +
-        ") * num_obs (" + std::to_string(num_obs_) + ")");
+  InitDepth(yaml_node["depth"]);
+  CheckModelInputs();
 
   lowcmd_publisher_.reset(
       new unitree::robot::ChannelPublisher<unitree_go::msg::dds_::LowCmd_>(
@@ -69,6 +77,13 @@ Controller::Controller(const std::string& config_path) {
   joystick_subscriber_->InitChannel(
       std::bind(&Controller::JoystickMsgHandler, this, std::placeholders::_1),
       1);
+  if (depth_enable_) {
+    depth_subscriber_.reset(new unitree::robot::ChannelSubscriber<
+                            unitree_go::msg::dds_::HeightMap_>(depth_topic_));
+    depth_subscriber_->InitChannel(
+        std::bind(&Controller::DepthMsgHandler, this, std::placeholders::_1),
+        1);
+  }
 
   // The sport / motion-switcher services only exist on the real robot.
   if (real_robot_) {
@@ -84,6 +99,20 @@ Controller::Controller(const std::string& config_path) {
     usleep(100000);
   }
   std::cout << "Get LowState Succeeded." << std::endl;
+
+  // On the real robot never start without depth. In simulation nothing may
+  // publish depth, so the network gets zeros until a frame arrives.
+  if (depth_enable_ && real_robot_) {
+    std::cout << "Waiting for depth image on " << depth_topic_ << "..."
+              << std::endl;
+    while (!depth_frame_.GetDataPtr()) {
+      usleep(100000);
+    }
+    std::cout << "Get depth image Succeeded." << std::endl;
+  } else if (depth_enable_) {
+    std::cout << "Simulation: depth input is zero until a frame arrives on "
+              << depth_topic_ << std::endl;
+  }
 
   // Release the built-in locomotion controller so it does not fight lowcmd.
   while (real_robot_ && this->QueryMotionStatus() == 1) {
@@ -178,10 +207,20 @@ LowCmdPtr Controller::Forward() {
   cmd_[0] = gamepad_.ly * max_cmd_[0] * cmd_scale_[0];
   cmd_[1] = -gamepad_.lx * max_cmd_[1] * cmd_scale_[1];
   cmd_[2] = -gamepad_.rx * max_cmd_[2] * cmd_scale_[2];
-  auto latent = encoder_.Forward(obs_history_);
+
+  std::vector<std::vector<float>> encoder_in{obs_history_};
+  if (depth_enable_) {
+    UpdateDepthInput();
+    if (depth_to_encoder_)
+      encoder_in.push_back(depth_input_);
+  }
+  auto latent = encoder_.Forward(encoder_in);
   obs_vector.insert(obs_vector.end(), cmd_.begin(), cmd_.end());
   obs_vector.insert(obs_vector.end(), latent.begin(), latent.end());
-  obs_.actions = policy_.Forward(obs_vector);
+  std::vector<std::vector<float>> policy_in{obs_vector};
+  if (depth_enable_ && !depth_to_encoder_)
+    policy_in.push_back(depth_input_);
+  obs_.actions = policy_.Forward(policy_in);
 
   for (int i = 0; i < motor_idx_.size(); ++i) {
     low_cmd->motor_cmd()[motor_idx_[i]].q() =
@@ -298,6 +337,101 @@ void Controller::JoystickMsgHandler(const void* message) {
   unitree_go::msg::dds_::WirelessController_* ptr =
       (unitree_go::msg::dds_::WirelessController_*)message;
   joystick_.SetData(*ptr);
+}
+
+void Controller::InitDepth(const YAML::Node& node) {
+  depth_enable_ = node && node["enable"].as<bool>(false);
+  if (!depth_enable_) {
+    std::cout << "Depth input: disabled" << std::endl;
+    return;
+  }
+  depth_topic_ = node["topic"].as<std::string>();
+  const auto target = node["target"].as<std::string>("policy");
+  if (target != "policy" && target != "encoder")
+    throw std::runtime_error(
+        "depth.target must be 'policy' or 'encoder', got '" + target + "'");
+  depth_to_encoder_ = target == "encoder";
+  depth_update_interval_ = node["update_interval"].as<int>(1);
+  if (depth_update_interval_ < 1)
+    throw std::runtime_error("depth.update_interval must be >= 1");
+  depth_timeout_ = node["timeout"].as<float>(0.5f);
+  depth_proc_.Init(node);
+  depth_input_.assign(depth_proc_.OutputSize(), 0.0f);
+
+  const auto& p = depth_proc_.params();
+  std::cout << "Depth input: topic " << depth_topic_ << " -> " << target << ", "
+            << p.out_height << "x" << p.out_width << ", clip [" << p.near_clip
+            << ", " << p.far_clip << "] m, every " << depth_update_interval_
+            << " step(s)" << std::endl;
+}
+
+// Fail at startup, not in the control loop, if the models and the config
+// disagree about which network takes which inputs.
+void Controller::CheckModelInputs() {
+  auto expect_inputs = [](const Model& m, const char* name, size_t n) {
+    if (m.NumInputs() != n)
+      throw std::runtime_error(
+          std::string(name) + " model has " + std::to_string(m.NumInputs()) +
+          " data inputs, config expects " + std::to_string(n) +
+          " (check depth.enable / depth.target)");
+  };
+  expect_inputs(encoder_, "encoder",
+                depth_enable_ && depth_to_encoder_ ? 2 : 1);
+  expect_inputs(policy_, "policy", depth_enable_ && !depth_to_encoder_ ? 2 : 1);
+
+  if (encoder_.InputSize(0) != (size_t)(obs_history_len_ * num_obs_))
+    throw std::runtime_error(
+        "encoder input size " + std::to_string(encoder_.InputSize(0)) +
+        " != obs_history_len (" + std::to_string(obs_history_len_) +
+        ") * num_obs (" + std::to_string(num_obs_) + ")");
+
+  if (depth_enable_) {
+    const Model& m = depth_to_encoder_ ? encoder_ : policy_;
+    if (m.InputSize(1) != depth_proc_.OutputSize())
+      throw std::runtime_error("depth input size " +
+                               std::to_string(m.InputSize(1)) +
+                               " != depth.height * depth.width (" +
+                               std::to_string(depth_proc_.OutputSize()) + ")");
+  }
+}
+
+// DDS thread: preprocess here so the control loop only copies the result.
+void Controller::DepthMsgHandler(const void* message) {
+  const auto* msg = (const unitree_go::msg::dds_::HeightMap_*)message;
+  std::string err;
+  auto frame = std::make_shared<DepthFrame>();
+  if (msg->data().size() != (size_t)msg->width() * msg->height()) {
+    err = "data size " + std::to_string(msg->data().size()) +
+          " != width * height (" + std::to_string(msg->width()) + "x" +
+          std::to_string(msg->height()) + ")";
+  } else {
+    depth_proc_.Process(msg->data().data(), msg->width(), msg->height(),
+                        &frame->data, &err);
+  }
+  if (!err.empty()) {
+    if (ShouldWarn(&depth_err_warn_))
+      std::cerr << "Dropping depth image: " << err << std::endl;
+    return;
+  }
+  frame->received = std::chrono::steady_clock::now();
+  depth_frame_.SetDataPtr(frame);
+}
+
+// low_ctrl thread: refresh the held depth input every update_interval steps.
+// Before the first frame arrives (simulation) the input stays zero.
+void Controller::UpdateDepthInput() {
+  auto frame = depth_frame_.GetDataPtr();
+  if (frame && real_robot_) {
+    float age = std::chrono::duration<float>(std::chrono::steady_clock::now() -
+                                             frame->received)
+                    .count();
+    if (age > depth_timeout_ && ShouldWarn(&depth_stale_warn_))
+      std::cerr << "WARNING: depth image is " << age << " s old" << std::endl;
+  }
+  const bool refresh = depth_step_ == 0;
+  depth_step_ = (depth_step_ + 1) % depth_update_interval_;
+  if (refresh && frame)
+    depth_input_ = frame->data;
 }
 
 void Controller::JoystickUpdate() {

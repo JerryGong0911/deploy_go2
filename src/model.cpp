@@ -2,6 +2,8 @@
 #include <algorithm>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace {
 std::string ShapeStr(const std::vector<int64_t>& shape) {
@@ -32,6 +34,7 @@ std::vector<int64_t> Model::ResolveShape(std::vector<int64_t> shape,
 void Model::Init(const std::string& _model_path) {
   model_path_ = _model_path;
   loaded_ = false;
+  inputs_.clear();
   states_.clear();
   try {
     Ort::SessionOptions opts;
@@ -47,31 +50,38 @@ void Model::Init(const std::string& _model_path) {
 
     const size_t n_in = session_->GetInputCount();
     const size_t n_out = session_->GetOutputCount();
-    if (n_in == 0 || n_in != n_out)
+    if (n_out == 0 || n_in < n_out)
       throw std::runtime_error(
-          "expected 1 input / 1 output (feed-forward) or N inputs / N "
-          "outputs (recurrent), got " +
+          "expected M data inputs + S state inputs -> 1 + S outputs, got " +
           std::to_string(n_in) + " inputs / " + std::to_string(n_out) +
           " outputs");
+    const size_t n_states = n_out - 1;
+    const size_t n_data = n_in - n_states;
 
     Ort::AllocatorWithDefaultOptions alloc;
-    input_name_ = session_->GetInputNameAllocated(0, alloc).get();
     output_name_ = session_->GetOutputNameAllocated(0, alloc).get();
-    input_shape_ = ResolveShape(
-        session_->GetInputTypeInfo(0).GetTensorTypeAndShapeInfo().GetShape(),
-        &input_size_);
-    input_buf_.assign(input_size_, 0.0f);
 
-    // Recurrent states: input k pairs with output k (k >= 1).
-    for (size_t k = 1; k < n_in; ++k) {
+    for (size_t i = 0; i < n_data; ++i) {
+      Input in;
+      in.name = session_->GetInputNameAllocated(i, alloc).get();
+      // Keep the TypeInfo alive: the shape-info view points into it.
+      Ort::TypeInfo type = session_->GetInputTypeInfo(i);
+      auto info = type.GetTensorTypeAndShapeInfo();
+      if (info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT)
+        throw std::runtime_error("input '" + in.name + "' must be float32");
+      in.shape = ResolveShape(info.GetShape(), &in.size);
+      in.buf.assign(in.size, 0.0f);
+      inputs_.push_back(std::move(in));
+    }
+
+    // Recurrent states: input n_data + k pairs with output 1 + k.
+    for (size_t k = 0; k < n_states; ++k) {
       State st;
-      st.in_name = session_->GetInputNameAllocated(k, alloc).get();
-      st.out_name = session_->GetOutputNameAllocated(k, alloc).get();
+      st.in_name = session_->GetInputNameAllocated(n_data + k, alloc).get();
+      st.out_name = session_->GetOutputNameAllocated(1 + k, alloc).get();
 
-      // The TypeInfo objects own the data the shape-info views point into,
-      // so they must stay alive while in_info / out_info are used.
-      Ort::TypeInfo in_type = session_->GetInputTypeInfo(k);
-      Ort::TypeInfo out_type = session_->GetOutputTypeInfo(k);
+      Ort::TypeInfo in_type = session_->GetInputTypeInfo(n_data + k);
+      Ort::TypeInfo out_type = session_->GetOutputTypeInfo(1 + k);
       auto in_info = in_type.GetTensorTypeAndShapeInfo();
       auto out_info = out_type.GetTensorTypeAndShapeInfo();
       if (in_info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ||
@@ -90,9 +100,11 @@ void Model::Init(const std::string& _model_path) {
       states_.push_back(std::move(st));
     }
 
-    // states_ is final now, so these pointers stay valid.
-    in_names_ = {input_name_.c_str()};
+    // inputs_ / states_ are final now, so these pointers stay valid.
+    in_names_.clear();
     out_names_ = {output_name_.c_str()};
+    for (const auto& in : inputs_)
+      in_names_.push_back(in.name.c_str());
     for (const auto& st : states_) {
       in_names_.push_back(st.in_name.c_str());
       out_names_.push_back(st.out_name.c_str());
@@ -100,20 +112,25 @@ void Model::Init(const std::string& _model_path) {
     loaded_ = true;
 
     std::cout << "Loaded " << (IsRecurrent() ? "recurrent" : "feed-forward")
-              << " model '" << model_path_ << "': input '" << input_name_
-              << "' " << ShapeStr(input_shape_);
+              << " model '" << model_path_ << "':";
+    for (const auto& in : inputs_)
+      std::cout << " input '" << in.name << "' " << ShapeStr(in.shape) << ";";
     for (const auto& st : states_)
-      std::cout << ", state '" << st.in_name << "' -> '" << st.out_name << "' "
-                << ShapeStr(st.shape);
+      std::cout << " state '" << st.in_name << "' -> '" << st.out_name << "' "
+                << ShapeStr(st.shape) << ";";
     std::cout << std::endl;
 
     // Warm up so the first control step does not pay for allocations, then
     // clear the hidden state the warm-up call produced.
-    Forward(std::vector<float>(input_size_, 0.0f));
+    std::vector<std::vector<float>> zeros;
+    for (const auto& in : inputs_)
+      zeros.emplace_back(in.size, 0.0f);
+    Forward(zeros);
     ResetStates();
   } catch (const std::exception& e) {
     loaded_ = false;
     session_.reset();
+    inputs_.clear();
     states_.clear();
     throw std::runtime_error("Failed to load ONNX model '" + model_path_ +
                              "': " + e.what());
@@ -126,28 +143,47 @@ void Model::ResetStates() {
 }
 
 std::vector<float> Model::Forward(const std::vector<float>& input_data) {
+  if (inputs_.size() != 1)
+    throw std::runtime_error("Model '" + model_path_ + "' has " +
+                             std::to_string(inputs_.size()) +
+                             " data inputs, single-input Forward used");
+  return Forward(std::vector<std::vector<float>>{input_data});
+}
+
+std::vector<float> Model::Forward(
+    const std::vector<std::vector<float>>& input_data) {
   if (!loaded_)
     throw std::runtime_error("Model not loaded.");
-  if (input_data.size() != input_size_)
-    throw std::runtime_error("Model input size mismatch for '" + model_path_ +
-                             "': expected " + std::to_string(input_size_) +
-                             ", got " + std::to_string(input_data.size()));
+  if (input_data.size() != inputs_.size())
+    throw std::runtime_error("Model '" + model_path_ + "' expects " +
+                             std::to_string(inputs_.size()) +
+                             " data inputs, got " +
+                             std::to_string(input_data.size()));
+  for (size_t i = 0; i < inputs_.size(); ++i) {
+    if (input_data[i].size() != inputs_[i].size)
+      throw std::runtime_error("Model input size mismatch for '" + model_path_ +
+                               "' input '" + inputs_[i].name + "': expected " +
+                               std::to_string(inputs_[i].size) + ", got " +
+                               std::to_string(input_data[i].size()));
+    std::copy(input_data[i].begin(), input_data[i].end(),
+              inputs_[i].buf.begin());
+  }
 
-  std::copy(input_data.begin(), input_data.end(), input_buf_.begin());
   try {
-    std::vector<Ort::Value> inputs;
-    inputs.reserve(1 + states_.size());
-    inputs.push_back(Ort::Value::CreateTensor<float>(
-        mem_info_, input_buf_.data(), input_buf_.size(), input_shape_.data(),
-        input_shape_.size()));
+    std::vector<Ort::Value> tensors;
+    tensors.reserve(inputs_.size() + states_.size());
+    for (auto& in : inputs_)
+      tensors.push_back(Ort::Value::CreateTensor<float>(
+          mem_info_, in.buf.data(), in.buf.size(), in.shape.data(),
+          in.shape.size()));
     for (auto& st : states_)
-      inputs.push_back(Ort::Value::CreateTensor<float>(
+      tensors.push_back(Ort::Value::CreateTensor<float>(
           mem_info_, st.data.data(), st.data.size(), st.shape.data(),
           st.shape.size()));
 
-    auto outputs =
-        session_->Run(Ort::RunOptions{nullptr}, in_names_.data(), inputs.data(),
-                      inputs.size(), out_names_.data(), out_names_.size());
+    auto outputs = session_->Run(Ort::RunOptions{nullptr}, in_names_.data(),
+                                 tensors.data(), tensors.size(),
+                                 out_names_.data(), out_names_.size());
 
     // Carry the new hidden state into the next step.
     for (size_t k = 0; k < states_.size(); ++k) {

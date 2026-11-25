@@ -19,6 +19,8 @@ make -j$(nproc)
 
 The C++ binary will be at `build/go2_deploy_cpp`. Run it from `build/`: config and model paths are relative to that directory (`../config/go2.yaml`, `../model/`).
 
+If librealsense2 is installed, `build/go2_depth_pub` is built too: a separate process that publishes RealSense depth (meters) on `depth.topic`. Start it alongside `go2_deploy_cpp` (also from `build/`) when `depth.enable: true`; it waits for the camera and reconnects after unplugging.
+
 ### Configuration
 Edit `config/go2.yaml` to modify:
 - Deployment target: `real_robot` (true: real Go2, DDS domain 0 on `network_interface`; false: unitree_mujoco, DDS domain `sim_domain_id` on `lo`)
@@ -27,6 +29,7 @@ Edit `config/go2.yaml` to modify:
 - PID gains (`kps`, `kds`)
 - Default joint angles (`default_angles`)
 - Observation/action scaling factors
+- `depth`: depth input (enable, topic, which network takes it, preprocessing). Real robot waits for the first frame; simulation feeds zeros until one arrives
 - `obs_history_len`: observation frames stacked as encoder input (5 for the MLP encoder, typically 1 for a GRU encoder); checked against the encoder input size at startup
 
 ## Architecture
@@ -34,19 +37,21 @@ Edit `config/go2.yaml` to modify:
 ### C++ (`src/`, `inc/`)
 - `Controller` class: Main controller in `controller.cpp`
 - Uses Unitree SDK2 with C++ bindings
-- `Model` class: ONNX Runtime model loading/inference, single-threaded CPU (`model.cpp`). Auto-detects feed-forward (1 in / 1 out) vs recurrent (N in / N out, e.g. GRU `(obs, h_in) -> (out, h_out)`) models; recurrent states are paired by position, kept inside `Model`, zero-initialised, and reset with `ResetStates()`
+- `Model` class: ONNX Runtime model loading/inference, single-threaded CPU (`model.cpp`). Signature is M data inputs + S state inputs -> 1 + S outputs (S = #outputs - 1), e.g. MLP `(obs)->(out)`, GRU `(obs, h_in)->(out, h_out)`, depth+GRU `(obs, depth, h_in)->(out, h_out)`; states are kept inside `Model`, zero-initialised, and reset with `ResetStates()`
+- `DepthProcessor` (`depth_processor.cpp`): depth image -> network input (scale, crop, clip, bilinear resize, normalize); depth arrives over DDS as `unitree_go::msg::dds_::HeightMap_` (used as a 2D float grid) and is preprocessed in the DDS callback
 - `obs_buf.cpp`: Observation history buffer for encoder
 - Headers in `inc/` directory
 
 ### Components
+- `tools/depth_publisher.cpp`: standalone RealSense -> DDS `HeightMap_` depth publisher (`go2_depth_pub`), kept out of the controller process so camera I/O cannot stall the control loop; it only converts to meters, all training preprocessing is done by the controller
 - `config/go2.yaml`: Robot and policy configuration
 - `model/`: ONNX policy (`policy_1.onnx`) and encoder (`encoder_1.onnx`) models, exported from the TorchScript `.pt` files
 
 ### Robot Control Flow
 1. Receive LowState (motor positions, velocities, IMU data)
 2. Compute observation (normalized joint angles, velocities, angular velocity, gravity vector)
-3. Pass observation + command through encoder to get latent
-4. Pass observation + command + latent through policy to get action
+3. Pass observation history (+ depth if `depth.target: encoder`) through encoder to get latent
+4. Pass observation + command + latent (+ depth if `depth.target: policy`) through policy to get action
 5. Convert action to target joint positions
 6. Send LowCmd with target positions and PD gains
 

@@ -30,3 +30,17 @@ target_link_libraries(${PROJECT_NAME} unitree_sdk2 ddsc ddscxx yaml-cpp pthread 
 set_target_properties(${PROJECT_NAME} PROPERTIES
                       BUILD_RPATH "${ORT_DIR}/lib"
                       INSTALL_RPATH "${ORT_DIR}/lib")
+
+# Standalone depth publisher (RealSense -> DDS), built only if librealsense2
+# is installed. Runs as a separate process from the controller.
+find_package(realsense2 QUIET)
+if(realsense2_FOUND)
+    add_executable(go2_depth_pub tools/depth_publisher.cpp)
+    target_include_directories(go2_depth_pub PRIVATE
+                                "/usr/local/include/ddscxx"
+                                "/usr/local/include/iceoryx/v2.0.2")
+    target_link_libraries(go2_depth_pub unitree_sdk2 ddsc ddscxx yaml-cpp pthread
+                          realsense2::realsense2)
+else()
+    message(STATUS "librealsense2 not found: skipping go2_depth_pub")
+endif()

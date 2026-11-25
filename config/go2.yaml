@@ -33,3 +33,34 @@ obs_history_len: 5
 
 max_cmd: [2., 1., 3.]
 max_cmd_slope: [1., 1., 3.]
+
+# Depth image input. Keep disabled until a depth-conditioned model is deployed.
+# Transport: DDS topic of type unitree_go::msg::dds_::HeightMap_ (used as a
+# generic 2D float grid): width, height, data = row-major depth (height*width
+# floats); stamp / frame_id / resolution / origin are ignored.
+# Pipeline: *depth_scale -> crop -> clip -> bilinear resize -> normalize
+#   out = (clip(d, near, far) - near) / (far - near) * norm_scale + norm_offset
+# Pixels <= 0 / NaN / inf (no sensor return) are treated as far_clip.
+# All values below must match training.
+depth:
+  enable: false
+  topic: "rt/depth_image"
+  target: "policy"        # network taking depth as its 2nd data input: policy | encoder
+  update_interval: 1      # control steps (20 ms) per depth refresh; 5 = 10 Hz
+  timeout: 0.5            # s; real robot warns when the latest frame is older
+  depth_scale: 1.0        # raw value -> meters (0.001 if published in mm)
+  crop: [0, 0, 0, 0]      # pixels removed: [top, bottom, left, right]
+  near_clip: 0.0          # m
+  far_clip: 2.0           # m
+  height: 48              # network input rows
+  width: 64               # network input cols
+  norm_scale: 1.0
+  norm_offset: -0.5
+  # Used by go2_depth_pub (separate process): RealSense depth stream. It
+  # publishes full frames in meters on depth.topic, so depth_scale stays 1.0
+  # and crop is in pixels of this resolution.
+  camera:
+    serial: ""            # empty = first camera found
+    width: 424
+    height: 240
+    fps: 30
