@@ -1,7 +1,8 @@
 #include "controller.hpp"
-#include <yaml-cpp/yaml.h>
 #include <unistd.h>
+#include <yaml-cpp/yaml.h>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include "unlities.hpp"
 
@@ -30,6 +31,10 @@ Controller::Controller(const std::string& config_path) {
 
   num_actions_ = yaml_node["num_actions"].as<int>();
   num_obs_ = yaml_node["num_obs"].as<int>();
+  // Frames of observation history fed to the encoder. MLP encoders use a
+  // stacked window (5); a recurrent (GRU) encoder usually takes 1 frame and
+  // carries the past in its hidden state.
+  obs_history_len_ = yaml_node["obs_history_len"].as<int>(5);
   cmd_.assign(3, 0.0f);
   obs_.gyro.assign(3, 0.0f);
   obs_.accel.assign(3, 0.0f);
@@ -39,9 +44,14 @@ Controller::Controller(const std::string& config_path) {
   interp_start_.assign(motor_idx_.size(), 0.0f);
 
   InitLowCmd();
-  obs_history_buf_.Init(5, num_obs_);
+  obs_history_buf_.Init(obs_history_len_, num_obs_);
   policy_.Init(policy_path_);
   encoder_.Init(encoder_path_);
+  if (encoder_.InputSize() != (size_t)(obs_history_len_ * num_obs_))
+    throw std::runtime_error(
+        "encoder input size " + std::to_string(encoder_.InputSize()) +
+        " != obs_history_len (" + std::to_string(obs_history_len_) +
+        ") * num_obs (" + std::to_string(num_obs_) + ")");
 
   lowcmd_publisher_.reset(
       new unitree::robot::ChannelPublisher<unitree_go::msg::dds_::LowCmd_>(
@@ -133,11 +143,12 @@ LowCmdPtr Controller::Damp() {
   return low_cmd;
 }
 
-// The policy runs every step (shadow mode) to keep the observation history
-// and latent current. When its output is NOT executed, overwrite the "last
-// action" fed back into the observation with the action equivalent of the
-// command that was actually sent, so the history stays self-consistent.
-// Joints without a position target (kp == 0, e.g. damping) map to 0.
+// The policy runs every step (shadow mode) to keep the observation history,
+// latent and any recurrent (GRU) hidden state current. When its output is NOT
+// executed, overwrite the "last action" fed back into the observation with the
+// action equivalent of the command that was actually sent, so the history stays
+// self-consistent. Joints without a position target (kp == 0, e.g. damping) map
+// to 0.
 void Controller::SetExecutedActions(const LowCmdPtr& cmd) {
   for (size_t i = 0; i < motor_idx_.size(); ++i) {
     const auto& m = cmd->motor_cmd()[motor_idx_[i]];

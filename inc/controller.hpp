@@ -77,14 +77,14 @@ class Controller {
   std::vector<float> cmd_, obs_history_, max_cmd_, cmd_scale_;
   std::string policy_path_, encoder_path_;
   float ang_vel_scale_, dof_pos_scale_, dof_vel_scale_, action_scale_;
-  int num_actions_, num_obs_;
+  int num_actions_, num_obs_, obs_history_len_;
 
   bool real_robot_ = false;
   bool move_ = false, ready_ = false, default_ = false, stop_ = false;
 
   // Owned by the low_ctrl thread only.
-  int interp_step_ = 0;               // MoveToDefault progress, 0 = not started
-  std::vector<float> interp_start_;   // joint positions when interpolation began
+  int interp_step_ = 0;              // MoveToDefault progress, 0 = not started
+  std::vector<float> interp_start_;  // joint positions when interpolation began
 };
 
 #endif

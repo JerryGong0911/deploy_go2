@@ -27,13 +27,14 @@ Edit `config/go2.yaml` to modify:
 - PID gains (`kps`, `kds`)
 - Default joint angles (`default_angles`)
 - Observation/action scaling factors
+- `obs_history_len`: observation frames stacked as encoder input (5 for the MLP encoder, typically 1 for a GRU encoder); checked against the encoder input size at startup
 
 ## Architecture
 
 ### C++ (`src/`, `inc/`)
 - `Controller` class: Main controller in `controller.cpp`
 - Uses Unitree SDK2 with C++ bindings
-- `Model` class: ONNX Runtime model loading/inference, single-threaded CPU (`model.cpp`)
+- `Model` class: ONNX Runtime model loading/inference, single-threaded CPU (`model.cpp`). Auto-detects feed-forward (1 in / 1 out) vs recurrent (N in / N out, e.g. GRU `(obs, h_in) -> (out, h_out)`) models; recurrent states are paired by position, kept inside `Model`, zero-initialised, and reset with `ResetStates()`
 - `obs_buf.cpp`: Observation history buffer for encoder
 - Headers in `inc/` directory
 

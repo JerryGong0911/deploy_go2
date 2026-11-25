@@ -27,6 +27,9 @@ action_scale: 0.25
 cmd_scale: [2.0, 2.0, 0.25]
 num_actions: 12
 num_obs: 42
+# Observation frames stacked as encoder input: 5 for the MLP encoder;
+# set to 1 for a recurrent (GRU) encoder that keeps history in its state.
+obs_history_len: 5
 
 max_cmd: [2., 1., 3.]
 max_cmd_slope: [1., 1., 3.]
