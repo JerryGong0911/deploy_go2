@@ -105,8 +105,22 @@ Controller::Controller(const std::string& config_path) {
   std::cout << "Controller initialized." << std::endl;
 }
 
+// Safe shutdown: stop the control threads, keep publishing a damping command
+// for kShutdownDampSec so the robot settles to the ground, then stop
+// publishing. The threads are stopped explicitly (control first, writer last)
+// because member destruction would otherwise free state they still use.
 Controller::~Controller() {
-  // Damp();
+  constexpr int kShutdownDampSec = 3;
+
+  low_ctrl_thread_ptr_.reset();  // no more policy / FSM output
+  fsm_thread_ptr_.reset();
+
+  if (low_cmd_write_thread_ptr_) {
+    std::cout << "Damping for " << kShutdownDampSec << " s..." << std::endl;
+    low_cmd_.SetDataPtr(Damp());
+    sleep(kShutdownDampSec);
+    low_cmd_write_thread_ptr_.reset();
+  }
   std::cout << "Controller Done" << std::endl;
 }
 
