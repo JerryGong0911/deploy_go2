@@ -15,6 +15,7 @@
 #include "joystick.hpp"
 #include "model.hpp"
 #include "obs_buf.hpp"
+#include "unlities.hpp"
 
 constexpr double PosStopF = (2.146E+9f);
 constexpr double VelStopF = (16000.0f);
@@ -40,6 +41,7 @@ class Controller {
   void InitLowCmd();
   LowCmdPtr Damp();
   LowCmdPtr Forward();
+  float HeadingCommand(float yaw_rate_setpoint, float yaw, float gyro_z);
   LowCmdPtr MoveToDefault();
   LowCmdPtr DefaultStand();
   void SetExecutedActions(const LowCmdPtr& cmd);
@@ -77,6 +79,9 @@ class Controller {
   std::vector<float> cmd_, obs_history_, max_cmd_, cmd_scale_;
   std::string policy_path_, encoder_path_;
   float ang_vel_scale_, dof_pos_scale_, dof_vel_scale_, action_scale_;
+  float yaw_track_gain_;    // heading-hold gain [1/s], see HeadingCommand
+  float yaw_cmd_deadband_;  // |w_set| above this [rad/s] = stick turning
+  float yaw_lock_rate_;     // latch heading once |gyro_z| [rad/s] drops below
   int num_actions_, num_obs_;
 
   bool real_robot_ = false;
@@ -85,6 +90,8 @@ class Controller {
   // Owned by the low_ctrl thread only.
   int interp_step_ = 0;               // MoveToDefault progress, 0 = not started
   std::vector<float> interp_start_;   // joint positions when interpolation began
+  float ref_yaw_ = 0.0f;              // held heading [rad], [-pi, pi]
+  bool heading_locked_ = false;       // ref_yaw_ latched, heading hold active
 };
 
 #endif

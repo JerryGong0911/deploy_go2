@@ -1,6 +1,8 @@
 #include "controller.hpp"
 #include <yaml-cpp/yaml.h>
 #include <unistd.h>
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include "unlities.hpp"
@@ -27,6 +29,9 @@ Controller::Controller(const std::string& config_path) {
   dof_pos_scale_ = yaml_node["dof_pos_scale"].as<float>();
   dof_vel_scale_ = yaml_node["dof_vel_scale"].as<float>();
   action_scale_ = yaml_node["action_scale"].as<float>();
+  yaw_track_gain_ = yaml_node["yaw_track_gain"].as<float>();
+  yaw_cmd_deadband_ = yaml_node["yaw_cmd_deadband"].as<float>();
+  yaw_lock_rate_ = yaml_node["yaw_lock_rate"].as<float>();
 
   num_actions_ = yaml_node["num_actions"].as<int>();
   num_obs_ = yaml_node["num_obs"].as<int>();
@@ -146,6 +151,40 @@ void Controller::SetExecutedActions(const LowCmdPtr& cmd) {
   }
 }
 
+// Yaw-rate command with heading hold.
+//  - Stick turning (|w_set| > yaw_cmd_deadband): pass w_set straight through
+//    and unlock the heading.
+//  - Stick released, robot still turning (|gyro_z| >= yaw_lock_rate): command
+//    0 and let ref_yaw follow the yaw, so the heading is not latched mid-coast
+//    (which would pull the robot back by the coast distance).
+//  - Robot has stopped: latch ref_yaw once, then hold it with
+//      ang_vel = clip(gain * wrap_to_pi(ref_yaw - yaw), -max, max)
+//    Keep gain <~ 1 / (2 * tau), tau = the policy's yaw-rate response time
+//    constant, or the heading oscillates around the reference.
+// The stick is low-pass filtered (joystick.hpp), so "released" needs the
+// deadband rather than w_set == 0. The error is wrapped to [-pi, pi] so it
+// does not jump when the yaw crosses +-pi, and the robot always turns back
+// the short way.
+float Controller::HeadingCommand(float yaw_rate_setpoint, float yaw,
+                                 float gyro_z) {
+  const float max_rate = max_cmd_[2];
+
+  if (std::fabs(yaw_rate_setpoint) > yaw_cmd_deadband_) {
+    heading_locked_ = false;
+    return std::clamp(yaw_rate_setpoint, -max_rate, max_rate);
+  }
+
+  if (!heading_locked_) {
+    ref_yaw_ = yaw;
+    if (std::fabs(gyro_z) >= yaw_lock_rate_)
+      return 0.0f;  // still coasting: let it stop before latching
+    heading_locked_ = true;
+  }
+
+  return std::clamp(yaw_track_gain_ * Wrap2Pi(ref_yaw_ - yaw),
+                    -max_rate, max_rate);
+}
+
 LowCmdPtr Controller::Forward() {
   auto low_cmd = std::make_shared<unitree_go::msg::dds_::LowCmd_>();
   auto low_state = low_state_.GetDataPtr();
@@ -166,7 +205,9 @@ LowCmdPtr Controller::Forward() {
 
   cmd_[0] = gamepad_.ly * max_cmd_[0] * cmd_scale_[0];
   cmd_[1] = -gamepad_.lx * max_cmd_[1] * cmd_scale_[1];
-  cmd_[2] = -gamepad_.rx * max_cmd_[2] * cmd_scale_[2];
+  cmd_[2] = HeadingCommand(-gamepad_.rx * max_cmd_[2], GetYaw(obs_.quat),
+                           low_state->imu_state().gyroscope()[2]) *
+            cmd_scale_[2];
   auto latent = encoder_.Forward(obs_history_);
   obs_vector.insert(obs_vector.end(), cmd_.begin(), cmd_.end());
   obs_vector.insert(obs_vector.end(), latent.begin(), latent.end());
@@ -270,8 +311,10 @@ void Controller::LowCtrlHandler() {
     target_cmd = Damp();
   }
 
-  if (target_cmd != policy_cmd)
+  if (target_cmd != policy_cmd) {
     SetExecutedActions(target_cmd);  // policy output was not executed
+    heading_locked_ = false;         // re-latch the heading on hand-over
+  }
   if (!interpolating)
     interp_step_ = 0;  // next MoveToDefault starts fresh from the current pose
   low_cmd_.SetDataPtr(target_cmd);

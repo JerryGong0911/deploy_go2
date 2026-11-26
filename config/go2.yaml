@@ -29,4 +29,9 @@ num_actions: 12
 num_obs: 42
 
 max_cmd: [2., 1., 3.]
-max_cmd_slope: [1., 1., 3.]
+max_cmd_slope: [1., 1., 3.]   # used as the max command; [2] = max yaw rate
+# Heading hold: stick turning -> pass the yaw rate through; stick released ->
+# wait until the robot stops turning, latch the heading and hold it.
+yaw_track_gain: 3.0           # hold: yaw-rate cmd = gain * (ref_yaw - yaw)
+yaw_cmd_deadband: 0.05        # |stick yaw rate| [rad/s] above this = turning
+yaw_lock_rate: 0.1            # latch heading once |gyro z| [rad/s] < this

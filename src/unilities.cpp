@@ -1,4 +1,5 @@
 #include "unlities.hpp"
+#include <cmath>
 
 uint32_t crc32_core(uint32_t* ptr, uint32_t len)
 {
@@ -40,4 +41,14 @@ std::vector<float> GetGravityOrientation(const std::vector<float>& q) {
         -2.0f * (qw * qx + qy * qz),         // y 分量
         1.0f - 2.0f * (qw * qw + qz * qz)    // z 分量
     };
+}
+
+float GetYaw(const std::vector<float>& q) {
+    float qw = q[0], qx = q[1], qy = q[2], qz = q[3];
+    return std::atan2(2.0f * (qw * qz + qx * qy),
+                      1.0f - 2.0f * (qy * qy + qz * qz));
+}
+
+float Wrap2Pi(float angle) {
+    return std::remainder(angle, 2.0f * static_cast<float>(M_PI));
 }
